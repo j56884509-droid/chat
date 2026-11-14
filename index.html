@@ -47,6 +47,7 @@ button.alt{background:#2b3a4a}
 .me{background:#2b5278;border-radius:14px 14px 4px 14px}
 .n{font-size:13px;font-weight:600;color:#6ab3f3;cursor:pointer;margin-bottom:2px}
 .tx{white-space:pre-wrap}
+.trn{font-size:14px;color:#b9d3ec;border-top:1px solid rgba(255,255,255,.14);margin-top:4px;padding-top:4px;white-space:pre-wrap}
 .media{display:block;width:260px;max-width:100%;border-radius:10px;cursor:pointer;background:#0e1621}
 .tm{font-size:11px;color:#8ba3b8;text-align:right;margin-top:2px}
 .me .tm{color:#9cc3e6}
@@ -110,6 +111,7 @@ button.alt{background:#2b3a4a}
 <select class="langsel" onchange="setLang(this.value)">
 <option value="uz">UZ</option><option value="ru">RU</option><option value="en">EN</option>
 </select>
+<button id="trbtn" class="alt" onclick="toggleTr()"></button>
 <button class="alt" data-i18n="logout" onclick="logout()"></button>
 </div>
 <div id="snew">
@@ -185,6 +187,7 @@ var RANKS = ["6","7","8","9","10","J","Q","K","A"];
 var RANKS_RU = ["6","7","8","9","10","В","Д","К","Т"];
 var AVS = ["🙂","😎","🤠","🥷","🦊","🐯","🐼","🦁","👽","🤖","🔥","⭐"];
 var chosen = "🙂";
+var TR = localStorage.getItem("tr") != "0";
 
 var T = {
   uz: {title:"Chat", name:"Ism", pass:"Parol", login:"Kirish", register:"Ro'yxatdan o'tish",
@@ -294,6 +297,7 @@ function applyLang(){
   document.querySelectorAll(".langsel").forEach(function(e){ e.value = LANG; });
   document.documentElement.lang = LANG;
   document.title = t("title");
+  updateTr();
   renderRooms();
   if(lastGame) showGame(lastGame);
 }
@@ -481,6 +485,19 @@ function addMsg(m, raw){
       var tx = document.createElement("div");
       tx.className = "tx"; tx.textContent = m.text;
       b.appendChild(tx);
+      if(!mine && TR && m.text.length <= 450){
+        var trd = document.createElement("div");
+        trd.className = "trn"; trd.style.display = "none";
+        b.appendChild(trd);
+        fetch("/translate?text=" + encodeURIComponent(m.text) + "&to=" + LANG)
+          .then(function(r){ return r.json(); })
+          .then(function(d){
+            if(d.text && d.text.trim().toLowerCase() != m.text.trim().toLowerCase()){
+              trd.textContent = d.text; trd.style.display = "block";
+              $("log").scrollTop = $("log").scrollHeight;
+            }
+          }).catch(function(){});
+      }
     }
     var tm = document.createElement("div");
     tm.className = "tm"; tm.textContent = hhmm(m.time || m.ts || m.created);
@@ -590,6 +607,17 @@ function showGame(g){
 function send(){
   var i = $("msg");
   if(ws && i.value){ ws.send(JSON.stringify({type: "msg", text: i.value})); i.value = ""; }
+}
+
+function updateTr(){
+  var b = $("trbtn");
+  if(b) b.textContent = TR ? "🌐 ✓" : "🌐 ✗";
+}
+
+function toggleTr(){
+  TR = !TR;
+  localStorage.setItem("tr", TR ? "1" : "0");
+  updateTr();
 }
 
 function upload(inp){

@@ -136,7 +136,67 @@ async def handle_game(room, name, data):
         await send_game(room)
         if g.over:
             await say(room, g.msg)
+from deep_translator import GoogleTranslator
 
+import re
+from deep_translator import MyMemoryTranslator
+
+TR_CACHE = {}
+LANG_NAMES = {"uz": "uzbek", "ru": "russian", "en": "english"}
+EN_WORDS = {"the", "is", "are", "you", "i", "and", "to", "a", "of", "in", "it",
+            "what", "how", "hello", "hi", "hey", "thanks", "thank", "please",
+            "yes", "ok", "good", "this", "that", "my", "we", "can", "not",
+            "with", "for", "have", "your", "where", "when", "why", "who"}
+
+def guess_lang(text):
+    if re.search("[а-яА-ЯёЁ]", text):
+        return "ru"
+    words = re.findall("[a-z'’ʻʼ‘]+", text.lower())
+    if any(w in EN_WORDS for w in words):
+        return "en"
+    return "uz"
+
+@app.get("/translate")
+def translate(text: str, to: str = "ru"):
+    if to not in LANG_NAMES or len(text) > 450:
+        return {"text": text}
+    src = guess_lang(text)
+    if src == to:
+        return {"text": text}
+    key = (text, to)
+    if key in TR_CACHE:
+        return {"text": TR_CACHE[key]}
+    try:
+        result = MyMemoryTranslator(source=LANG_NAMES[src], target=LANG_NAMES[to]).translate(text) or text
+    except Exception:
+        return {"text": text}
+    TR_CACHE[key] = result
+    return {"text": result}
+
+def guess_lang(text):
+    if re.search("[а-яА-ЯёЁ]", text):
+        return "ru"
+    words = re.findall("[a-z'’ʻʼ‘]+", text.lower())
+    if any(w in EN_WORDS for w in words):
+        return "en"
+    return "uz"
+
+@app.get("/translate")
+def translate(text: str, to: str = "ru"):
+    if to not in LANG_NAMES or len(text) > 450:
+        return {"text": text}
+    src = guess_lang(text)
+    if src == to:
+        return {"text": text}
+    key = (text, to)
+    if key in TR_CACHE:
+        return {"text": TR_CACHE[key]}
+    try:
+        result = MyMemoryTranslator(source=LANG_NAMES[src], target=LANG_NAMES[to]).translate(text) or text
+    except Exception:
+        return {"text": text}
+    TR_CACHE[key] = result
+    return {"text": result}
 @app.get("/")
 async def home():
     return HTMLResponse(open("index.html", encoding="utf-8").read())
