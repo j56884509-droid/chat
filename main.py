@@ -5,6 +5,37 @@ import db
 from durak import Durak
 
 app = FastAPI()
+import os, uuid
+from fastapi.staticfiles import StaticFiles
+
+os.makedirs("uploads", exist_ok=True)
+app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
+
+MAX_FILE = 25 * 1024 * 1024
+FILE_TYPES = {
+    "image/jpeg": ("jpg", "img"), "image/png": ("png", "img"),
+    "image/gif": ("gif", "img"), "image/webp": ("webp", "img"),
+    "video/mp4": ("mp4", "vid"), "video/webm": ("webm", "vid"),
+    "video/quicktime": ("mov", "vid"),
+}
+
+@app.post("/upload")
+async def upload(req: Request, token: str = ""):
+    if not db.name_by_token(token):
+        return JSONResponse({"error": "Kirish kerak"}, status_code=401)
+    ctype = req.headers.get("content-type", "").split(";")[0].strip()
+    if ctype not in FILE_TYPES:
+        return JSONResponse({"error": "Bu fayl turi mumkin emas"}, status_code=400)
+    if int(req.headers.get("content-length", "0") or 0) > MAX_FILE:
+        return JSONResponse({"error": "Fayl katta"}, status_code=400)
+    body = await req.body()
+    if not body or len(body) > MAX_FILE:
+        return JSONResponse({"error": "Fayl katta"}, status_code=400)
+    ext, kind = FILE_TYPES[ctype]
+    fname = uuid.uuid4().hex + "." + ext
+    with open(os.path.join("uploads", fname), "wb") as f:
+        f.write(body)
+    return {"url": "/uploads/" + fname, "kind": kind}
 rooms = {}
 games = {}
 lobbies = {}

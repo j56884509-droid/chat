@@ -47,6 +47,7 @@ button.alt{background:#2b3a4a}
 .me{background:#2b5278;border-radius:14px 14px 4px 14px}
 .n{font-size:13px;font-weight:600;color:#6ab3f3;cursor:pointer;margin-bottom:2px}
 .tx{white-space:pre-wrap}
+.media{display:block;width:260px;max-width:100%;border-radius:10px;cursor:pointer;background:#0e1621}
 .tm{font-size:11px;color:#8ba3b8;text-align:right;margin-top:2px}
 .me .tm{color:#9cc3e6}
 .sys{align-self:center;color:#aab8c5;font-size:13px;text-align:center;background:#182533;padding:3px 10px;border-radius:12px}
@@ -149,6 +150,8 @@ button.alt{background:#2b3a4a}
 <div id="log"></div>
 <div id="bar">
 <button class="alt" onclick="act('join')">🃏</button>
+<button class="alt" onclick="$('file').click()">📎</button>
+<input type="file" id="file" accept="image/*,video/*" style="display:none" onchange="upload(this)">
 <input id="msg" data-ph="msg">
 <button onclick="send()">➤</button>
 </div>
@@ -192,7 +195,7 @@ var T = {
        nobio:"Hali hech narsa yozilmagan", att:"Siz hujum qilasiz", def:"Siz himoyalanasiz",
        help:"Siz ham mos karta tashlab yordam bera olasiz", outs:"Siz kartalaringizni tugatdingiz ✅",
        cards:" karta", deck:"Kolod: ", trump:"Kozir: ", relogin:"Qayta kiring",
-       lost:"Aloqa uzildi. Xonani qayta oching.",
+       lost:"Aloqa uzildi. Xonani qayta oching.", big:"Fayl juda katta (25 MB gacha)", upfail:"Yuborib bo'lmadi", sending:"Yuborilmoqda...",
        ltitle:"🃏 Durak: o'yinchilar (2-4)", ljoin:"Qo'shilish", lleave:"Bekor qilish", lstart:"Boshlash"},
   ru: {title:"Чат", name:"Имя", pass:"Пароль", login:"Вход", register:"Регистрация",
        room:"Название новой комнаты", logout:"Выйти", empty:"Выберите чат или добавьте новую комнату",
@@ -202,7 +205,7 @@ var T = {
        nobio:"Пока ничего не написано", att:"Вы атакуете", def:"Вы защищаетесь",
        help:"Вы тоже можете подкидывать подходящие карты", outs:"У вас закончились карты ✅",
        cards:" карт", deck:"Колода: ", trump:"Козырь: ", relogin:"Войдите снова",
-       lost:"Соединение потеряно. Откройте комнату заново.",
+       lost:"Соединение потеряно. Откройте комнату заново.", big:"Файл слишком большой (до 25 МБ)", upfail:"Не удалось отправить", sending:"Отправка...",
        ltitle:"🃏 Дурак: игроки (2-4)", ljoin:"Присоединиться", lleave:"Выйти", lstart:"Начать"},
   en: {title:"Chat", name:"Name", pass:"Password", login:"Login", register:"Sign up",
        room:"New room name", logout:"Log out", empty:"Pick a chat or add a new room",
@@ -212,7 +215,7 @@ var T = {
        nobio:"Nothing written yet", att:"You are attacking", def:"You are defending",
        help:"You can also add matching cards", outs:"You are out of cards ✅",
        cards:" cards", deck:"Deck: ", trump:"Trump: ", relogin:"Please log in again",
-       lost:"Connection lost. Reopen the room.",
+       lost:"Connection lost. Reopen the room.", big:"File is too large (up to 25 MB)", upfail:"Could not send", sending:"Sending...",
        ltitle:"🃏 Durak: players (2-4)", ljoin:"Join", lleave:"Leave", lstart:"Start"}
 };
 
@@ -466,9 +469,19 @@ function addMsg(m, raw){
       n.onclick = function(){ openProfile(m.name); };
       b.appendChild(n);
     }
-    var tx = document.createElement("div");
-    tx.className = "tx"; tx.textContent = m.text;
-    b.appendChild(tx);
+    var mm = /^\[(img|vid)\](\/uploads\/[\w.\-]+)$/.exec(m.text);
+    if(mm){
+      var el = document.createElement(mm[1] == "img" ? "img" : "video");
+      el.className = "media"; el.src = mm[2];
+      var down = function(){ $("log").scrollTop = $("log").scrollHeight; };
+      if(mm[1] == "vid"){ el.controls = true; el.preload = "metadata"; el.onloadedmetadata = down; }
+      else { el.onclick = function(){ window.open(mm[2]); }; el.onload = down; }
+      b.appendChild(el);
+    } else {
+      var tx = document.createElement("div");
+      tx.className = "tx"; tx.textContent = m.text;
+      b.appendChild(tx);
+    }
     var tm = document.createElement("div");
     tm.className = "tm"; tm.textContent = hhmm(m.time || m.ts || m.created);
     b.appendChild(tm);
@@ -577,6 +590,19 @@ function showGame(g){
 function send(){
   var i = $("msg");
   if(ws && i.value){ ws.send(JSON.stringify({type: "msg", text: i.value})); i.value = ""; }
+}
+
+function upload(inp){
+  var f = inp.files[0]; inp.value = "";
+  if(!f || !ws) return;
+  if(f.size > 25 * 1024 * 1024){ addMsg({type: "system", text: t("big")}, true); return; }
+  addMsg({type: "system", text: t("sending")}, true);
+  fetch("/upload?token=" + encodeURIComponent(tok), {
+    method: "POST", headers: {"Content-Type": f.type}, body: f
+  }).then(function(r){ return r.json(); }).then(function(d){
+    if(d.error){ addMsg({type: "system", text: t("upfail")}, true); return; }
+    if(ws) ws.send(JSON.stringify({type: "msg", text: (d.kind == "img" ? "[img]" : "[vid]") + d.url}));
+  }).catch(function(){ addMsg({type: "system", text: t("upfail")}, true); });
 }
 
 function act(action, card){
