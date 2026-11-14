@@ -1,0 +1,449 @@
+<!DOCTYPE html>
+<html><head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Chat</title>
+<style>
+*{box-sizing:border-box}
+body{margin:0;font-family:sans-serif;background:#0e1621;color:#fff;height:100dvh;display:flex;flex-direction:column}
+.screen{margin:auto;display:flex;flex-direction:column;gap:10px;width:80%;max-width:320px}
+#roomsel{display:none}
+input,button,textarea,select{padding:12px;border-radius:10px;border:0;font-size:16px;font-family:inherit}
+button{background:#2b95e0;color:#fff}
+button.alt{background:#2b3a4a}
+#lang{position:fixed;top:8px;left:8px;z-index:5;padding:6px;font-size:14px;background:#2b3a4a;color:#fff}
+#lerr{color:#ffb4b4;font-size:14px;min-height:18px}
+#chat{display:none;flex:1;flex-direction:column;min-height:0}
+#top{display:flex;justify-content:space-between;align-items:center;padding:6px 10px 6px 76px;background:#17212b}
+#top button{padding:6px 10px;font-size:14px}
+#log{flex:1;overflow:auto;padding:10px;display:flex;flex-direction:column;gap:8px;min-height:80px}
+.row{display:flex;gap:6px;align-items:flex-end;max-width:85%;align-self:flex-start}
+.mine{align-self:flex-end;flex-direction:row-reverse}
+.av{font-size:26px;cursor:pointer}
+.b{padding:8px 12px;border-radius:14px;background:#182533;word-wrap:break-word;min-width:0}
+.me{background:#2b5278}
+.sys{align-self:center;color:#8899aa;font-size:13px;text-align:center}
+.n{font-size:12px;color:#6ab3f3;cursor:pointer}
+#bar{display:flex;gap:6px;padding:8px;background:#17212b}
+#msg{flex:1;min-width:0}
+#lobby{display:none;background:#243b55;padding:8px}
+#lbtn{display:flex;gap:8px;margin-top:6px}
+#lbtn button{flex:1;padding:8px}
+#game{display:none;background:#1b5e3a;padding:8px;max-height:55vh;overflow:auto}
+#gtop,#gstatus{font-size:14px;margin-bottom:4px}
+#gerr{color:#ffb4b4;font-size:13px;min-height:16px}
+#gtable{min-height:70px}
+.pair{display:inline-flex;flex-direction:column;align-items:center;margin:4px 8px}
+.card{display:inline-block;background:#fff;color:#000;border-radius:8px;padding:8px 6px;margin:3px;font-weight:bold;min-width:42px;text-align:center}
+.red{color:#d22}
+.over{margin-top:-14px;border:2px solid #2b95e0}
+#ghand{overflow-x:auto;white-space:nowrap}
+#gbtn{display:flex;gap:8px;margin-top:6px}
+#gbtn button{flex:1;padding:8px}
+#modal{display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);align-items:center;justify-content:center}
+#card{background:#17212b;border-radius:16px;padding:18px;width:85%;max-width:340px;display:flex;flex-direction:column;gap:10px;text-align:center}
+#pav{font-size:64px}
+#pbio{color:#c0ccd8}
+#pedit{display:none}
+#pick{display:flex;flex-wrap:wrap;gap:6px;justify-content:center;margin-bottom:8px}
+.opt{font-size:28px;cursor:pointer;padding:2px 4px}
+#bioin{width:100%;height:70px;margin-bottom:8px}
+</style></head><body>
+
+<select id="lang" onchange="setLang(this.value)">
+<option value="uz">UZ</option>
+<option value="ru">RU</option>
+<option value="en">EN</option>
+</select>
+
+<div id="login" class="screen">
+<h2 data-i18n="title"></h2>
+<input id="name" data-ph="name">
+<input id="pass" type="password" data-ph="pass">
+<div id="lerr"></div>
+<button data-i18n="login" onclick="auth('login')"></button>
+<button class="alt" data-i18n="register" onclick="auth('register')"></button>
+</div>
+
+<div id="roomsel" class="screen">
+<h2 id="hello"></h2>
+<input id="room" data-ph="room">
+<button data-i18n="enter" onclick="join()"></button>
+<button class="alt" data-i18n="logout" onclick="logout()"></button>
+</div>
+
+<div id="chat">
+<div id="top"><span id="rtitle"></span><button data-i18n="profile" onclick="openProfile(me)"></button></div>
+<div id="lobby">
+<div data-i18n="ltitle"></div>
+<div id="lplayers"></div>
+<div id="lbtn">
+<button id="bjoin" data-i18n="ljoin" onclick="act('join')"></button>
+<button id="bleave" class="alt" data-i18n="lleave" onclick="act('leave')"></button>
+<button id="bstart" data-i18n="lstart" onclick="act('start')"></button>
+</div>
+</div>
+<div id="game">
+<div id="gtop"></div>
+<div id="gtable"></div>
+<div id="gstatus"></div>
+<div id="gerr"></div>
+<div id="ghand"></div>
+<div id="gbtn">
+<button id="btake" data-i18n="take" onclick="act('take')"></button>
+<button id="bdone" data-i18n="done" onclick="act('done')"></button>
+</div>
+</div>
+<div id="log"></div>
+<div id="bar">
+<button onclick="act('join')">🃏</button>
+<input id="msg" data-ph="msg">
+<button onclick="send()">➤</button>
+</div>
+</div>
+
+<div id="modal" onclick="if(event.target==this)closeP()">
+<div id="card">
+<div id="pav"></div>
+<h3 id="pname"></h3>
+<div id="pstat"></div>
+<div id="pbio"></div>
+<div id="pedit">
+<div id="pick"></div>
+<textarea id="bioin" maxlength="200" data-ph="bio"></textarea>
+<button data-i18n="save" onclick="saveP()" style="width:100%"></button>
+</div>
+<button class="alt" data-i18n="close" onclick="closeP()"></button>
+</div>
+</div>
+
+<script>
+var ws, got = false, lastGame = null;
+var tok = localStorage.getItem("tok"), me = localStorage.getItem("me");
+var LANG = localStorage.getItem("lang") || "uz";
+var SUITS = ["♠","♥","♦","♣"];
+var RANKS = ["6","7","8","9","10","J","Q","K","A"];
+var RANKS_RU = ["6","7","8","9","10","В","Д","К","Т"];
+var AVS = ["🙂","😎","🤠","🥷","🦊","🐯","🐼","🦁","👽","🤖","🔥","⭐"];
+var chosen = "🙂";
+
+var T = {
+  uz: {title:"Chat", name:"Ism", pass:"Parol", login:"Kirish", register:"Ro'yxatdan o'tish",
+       hello:"Salom, ", room:"Xona nomi", enter:"Xonaga kirish", logout:"Chiqish",
+       profile:"👤 Profilim", msg:"Xabar...", take:"Olaman", done:"Bito", save:"Saqlash",
+       close:"Yopish", bio:"O'zim haqimda", online:"🟢 onlayn", offline:"⚪ oflayn",
+       nobio:"Hali hech narsa yozilmagan", att:"Siz hujum qilasiz", def:"Siz himoyalanasiz",
+       help:"Siz ham mos karta tashlab yordam bera olasiz", outs:"Siz kartalaringizni tugatdingiz ✅",
+       cards:" karta", deck:"Kolod: ", trump:"Kozir: ", relogin:"Qayta kiring",
+       lost:"Aloqa uzildi. Sahifani yangilang.",
+       ltitle:"🃏 Durak: o'yinchilar (2-4)", ljoin:"Qo'shilish", lleave:"Bekor qilish", lstart:"Boshlash"},
+  ru: {title:"Чат", name:"Имя", pass:"Пароль", login:"Вход", register:"Регистрация",
+       hello:"Привет, ", room:"Название комнаты", enter:"Войти в комнату", logout:"Выйти",
+       profile:"👤 Мой профиль", msg:"Сообщение...", take:"Беру", done:"Бито", save:"Сохранить",
+       close:"Закрыть", bio:"О себе", online:"🟢 в сети", offline:"⚪ не в сети",
+       nobio:"Пока ничего не написано", att:"Вы атакуете", def:"Вы защищаетесь",
+       help:"Вы тоже можете подкидывать подходящие карты", outs:"У вас закончились карты ✅",
+       cards:" карт", deck:"Колода: ", trump:"Козырь: ", relogin:"Войдите снова",
+       lost:"Соединение потеряно. Обновите страницу.",
+       ltitle:"🃏 Дурак: игроки (2-4)", ljoin:"Присоединиться", lleave:"Выйти", lstart:"Начать"},
+  en: {title:"Chat", name:"Name", pass:"Password", login:"Login", register:"Sign up",
+       hello:"Hello, ", room:"Room name", enter:"Join room", logout:"Log out",
+       profile:"👤 My profile", msg:"Message...", take:"Take", done:"Done", save:"Save",
+       close:"Close", bio:"About me", online:"🟢 online", offline:"⚪ offline",
+       nobio:"Nothing written yet", att:"You are attacking", def:"You are defending",
+       help:"You can also add matching cards", outs:"You are out of cards ✅",
+       cards:" cards", deck:"Deck: ", trump:"Trump: ", relogin:"Please log in again",
+       lost:"Connection lost. Refresh the page.",
+       ltitle:"🃏 Durak: players (2-4)", ljoin:"Join", lleave:"Leave", lstart:"Start"}
+};
+
+var SRV = {
+  ru: {
+    "Ism 2-20 harf, parol kamida 4 belgi bo'lsin": "Имя 2–20 символов, пароль не короче 4 символов",
+    "Bu ism band": "Это имя занято",
+    "Ism yoki parol noto'g'ri": "Неверное имя или пароль",
+    "Himoyalanuvchi hujum qila olmaydi": "Защищающийся не может атаковать",
+    "Birinchi karta tashlash navbati hujumchiniki": "Первую карту бросает атакующий",
+    "Siz o'yindan chiqqansiz": "Вы уже вышли из игры",
+    "Bunday karta yo'q": "Такой карты нет",
+    "Bu kartani tashlab bo'lmaydi": "Эту карту нельзя бросить",
+    "Siz himoyalanuvchi emassiz": "Вы не защищаетесь",
+    "Bu karta hech birini yopa olmaydi": "Эта карта ничего не бьёт",
+    "Hozir olib bo'lmaydi": "Сейчас нельзя взять",
+    "Hozir bito qilib bo'lmaydi": "Сейчас нельзя сказать «Бито»",
+    "O'yin tugagan": "Игра окончена",
+    "O'yin allaqachon boshlangan": "Игра уже идёт",
+    "O'yinda 4 kishi to'lgan": "Уже 4 игрока",
+    "Faqat boshlovchi o'yinni boshlay oladi": "Начать игру может только организатор",
+    "Durak uchun kamida 2 kishi kerak": "Для дурака нужно минимум 2 игрока",
+    "O'yin to'xtadi": "Игра остановлена",
+    "Bito": "Бито",
+    "Durang!": "Ничья!"
+  },
+  en: {
+    "Ism 2-20 harf, parol kamida 4 belgi bo'lsin": "Name 2-20 characters, password at least 4 characters",
+    "Bu ism band": "This name is taken",
+    "Ism yoki parol noto'g'ri": "Wrong name or password",
+    "Himoyalanuvchi hujum qila olmaydi": "The defender can't attack",
+    "Birinchi karta tashlash navbati hujumchiniki": "Only the attacker plays the first card",
+    "Siz o'yindan chiqqansiz": "You are already out of the game",
+    "Bunday karta yo'q": "You don't have this card",
+    "Bu kartani tashlab bo'lmaydi": "You can't play this card",
+    "Siz himoyalanuvchi emassiz": "You are not defending",
+    "Bu karta hech birini yopa olmaydi": "This card beats nothing",
+    "Hozir olib bo'lmaydi": "You can't take now",
+    "Hozir bito qilib bo'lmaydi": "You can't finish now",
+    "O'yin tugagan": "The game is over",
+    "O'yin allaqachon boshlangan": "A game is already in progress",
+    "O'yinda 4 kishi to'lgan": "Already 4 players",
+    "Faqat boshlovchi o'yinni boshlay oladi": "Only the host can start the game",
+    "Durak uchun kamida 2 kishi kerak": "Durak needs at least 2 players",
+    "O'yin to'xtadi": "The game stopped",
+    "Bito": "Round over",
+    "Durang!": "Draw!"
+  }
+};
+
+var PAT = [
+  [/^(.+) qo'shildi$/, {ru: "$1 в чате", en: "$1 joined"}],
+  [/^(.+) chiqib ketdi$/, {ru: "$1 вышел", en: "$1 left"}],
+  [/^Durak boshlandi: (.+)$/, {ru: "Дурак начался: $1", en: "Durak started: $1"}],
+  [/^(.+) durak o'yiniga odam yig'moqda$/, {ru: "$1 собирает игроков в дурака", en: "$1 is gathering players for Durak"}],
+  [/^(.+) kartalarni oldi$/, {ru: "$1 взял карты", en: "$1 took the cards"}],
+  [/^(.+) kartalarini tugatdi$/, {ru: "Карты закончились у: $1", en: "Out of cards: $1"}],
+  [/^(.+) durak! 🤡$/, {ru: "$1 — дурак! 🤡", en: "$1 is the durak! 🤡"}]
+];
+
+function t(k){ return T[LANG][k]; }
+
+function srv(text){
+  if(LANG == "uz") return text;
+  if(SRV[LANG][text]) return SRV[LANG][text];
+  for(var i = 0; i < PAT.length; i++){
+    if(PAT[i][0].test(text)) return text.replace(PAT[i][0], PAT[i][1][LANG]);
+  }
+  return text;
+}
+
+function applyLang(){
+  document.querySelectorAll("[data-i18n]").forEach(function(e){ e.textContent = t(e.dataset.i18n); });
+  document.querySelectorAll("[data-ph]").forEach(function(e){ e.placeholder = t(e.dataset.ph); });
+  document.getElementById("lang").value = LANG;
+  document.documentElement.lang = LANG;
+  document.title = t("title");
+  if(me) document.getElementById("hello").textContent = t("hello") + me;
+  if(lastGame) showGame(lastGame);
+}
+
+function setLang(l){
+  LANG = l;
+  localStorage.setItem("lang", l);
+  applyLang();
+}
+
+function screen(id){
+  ["login","roomsel","chat"].forEach(function(x){
+    document.getElementById(x).style.display = (x == id) ? "flex" : "none";
+  });
+}
+
+function auth(kind){
+  var n = document.getElementById("name").value.trim();
+  var p = document.getElementById("pass").value;
+  fetch("/" + kind, {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({name: n, password: p})
+  }).then(function(r){ return r.json(); }).then(function(d){
+    if(d.error){ document.getElementById("lerr").textContent = srv(d.error); return; }
+    tok = d.token; me = d.name;
+    localStorage.setItem("tok", tok);
+    localStorage.setItem("me", me);
+    toRoom();
+  });
+}
+
+function toRoom(){
+  document.getElementById("hello").textContent = t("hello") + me;
+  screen("roomsel");
+}
+
+function logout(){
+  localStorage.removeItem("tok");
+  localStorage.removeItem("me");
+  tok = null; me = null;
+  screen("login");
+}
+
+function join(){
+  var room = document.getElementById("room").value.trim();
+  if(!room) return;
+  got = false;
+  var proto = location.protocol == "https:" ? "wss://" : "ws://";
+  ws = new WebSocket(proto + location.host + "/ws/" + encodeURIComponent(room) + "/" + tok);
+  ws.onmessage = onmsg;
+  ws.onclose = function(){
+    if(!got){
+      logout();
+      document.getElementById("lerr").textContent = t("relogin");
+    } else {
+      addMsg({type: "system", text: t("lost")}, true);
+    }
+  };
+  document.getElementById("rtitle").textContent = "# " + room;
+  screen("chat");
+}
+
+function onmsg(e){
+  got = true;
+  var m = JSON.parse(e.data);
+  if(m.type == "game") showGame(m);
+  else if(m.type == "lobby") showLobby(m);
+  else if(m.type == "err"){
+    if(document.getElementById("game").style.display == "block")
+      document.getElementById("gerr").textContent = srv(m.text);
+    else addMsg({type: "system", text: m.text});
+  }
+  else addMsg(m);
+}
+
+function addMsg(m, raw){
+  var log = document.getElementById("log");
+  if(m.type == "system"){
+    var s = document.createElement("div");
+    s.className = "sys"; s.textContent = raw ? m.text : srv(m.text);
+    log.appendChild(s);
+  } else {
+    var mine = (m.name == me);
+    var row = document.createElement("div");
+    row.className = "row" + (mine ? " mine" : "");
+    var av = document.createElement("div");
+    av.className = "av"; av.textContent = m.avatar || "🙂";
+    av.onclick = function(){ openProfile(m.name); };
+    var b = document.createElement("div");
+    b.className = "b" + (mine ? " me" : "");
+    if(!mine){
+      var n = document.createElement("div");
+      n.className = "n"; n.textContent = m.name;
+      n.onclick = function(){ openProfile(m.name); };
+      b.appendChild(n);
+    }
+    var tx = document.createElement("div");
+    tx.textContent = m.text;
+    b.appendChild(tx);
+    row.appendChild(av); row.appendChild(b);
+    log.appendChild(row);
+  }
+  log.scrollTop = log.scrollHeight;
+}
+
+function openProfile(name){
+  fetch("/profile/" + encodeURIComponent(name)).then(function(r){ return r.json(); }).then(function(p){
+    if(p.error) return;
+    document.getElementById("pav").textContent = p.avatar;
+    document.getElementById("pname").textContent = p.name;
+    document.getElementById("pstat").textContent = p.online ? t("online") : t("offline");
+    document.getElementById("pbio").textContent = p.bio || t("nobio");
+    var mine = (p.name == me);
+    document.getElementById("pedit").style.display = mine ? "block" : "none";
+    document.getElementById("pbio").style.display = mine ? "none" : "block";
+    if(mine){
+      chosen = p.avatar;
+      document.getElementById("bioin").value = p.bio;
+      var pk = document.getElementById("pick");
+      pk.innerHTML = "";
+      AVS.forEach(function(a){
+        var sp = document.createElement("span");
+        sp.className = "opt"; sp.textContent = a;
+        sp.onclick = function(){ chosen = a; document.getElementById("pav").textContent = a; };
+        pk.appendChild(sp);
+      });
+    }
+    document.getElementById("modal").style.display = "flex";
+  });
+}
+
+function closeP(){ document.getElementById("modal").style.display = "none"; }
+
+function saveP(){
+  fetch("/profile", {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({token: tok, avatar: chosen, bio: document.getElementById("bioin").value})
+  }).then(function(){ closeP(); });
+}
+
+function showLobby(m){
+  var p = document.getElementById("lobby");
+  if(m.gone){ p.style.display = "none"; return; }
+  p.style.display = "block";
+  document.getElementById("lplayers").textContent =
+    m.players.map(function(n){ return (n == m.host ? "👑 " : "") + n; }).join(", ") +
+    " (" + m.players.length + "/4)";
+  var inL = m.players.indexOf(me) >= 0;
+  document.getElementById("bjoin").style.display = inL ? "none" : "block";
+  document.getElementById("bleave").style.display = inL ? "block" : "none";
+  document.getElementById("bstart").style.display = (m.host == me) ? "block" : "none";
+}
+
+function cardEl(c, click){
+  var R = (LANG == "ru") ? RANKS_RU : RANKS;
+  var d = document.createElement("div");
+  d.className = "card" + (c[1] == 1 || c[1] == 2 ? " red" : "");
+  d.textContent = R[c[0]] + SUITS[c[1]];
+  if(click) d.onclick = click;
+  return d;
+}
+
+function showGame(g){
+  var p = document.getElementById("game");
+  if(g.gone){ lastGame = null; p.style.display = "none"; return; }
+  lastGame = g;
+  p.style.display = "block";
+  document.getElementById("gerr").textContent = "";
+  var parts = g.others.map(function(o){
+    return (o.name == g.attacker ? "🗡" : "") + (o.name == g.defender ? "🛡" : "") +
+           o.name + ": " + (o.out ? "✅" : o.n + t("cards"));
+  });
+  document.getElementById("gtop").textContent =
+    parts.join(" | ") + " | " + t("deck") + g.deck_n + " | " + t("trump") + SUITS[g.trump];
+  var tb = document.getElementById("gtable"); tb.innerHTML = "";
+  g.table.forEach(function(pr){
+    var w = document.createElement("div"); w.className = "pair";
+    w.appendChild(cardEl(pr[0]));
+    if(pr[1]){ var c = cardEl(pr[1]); c.className += " over"; w.appendChild(c); }
+    tb.appendChild(w);
+  });
+  var h = document.getElementById("ghand"); h.innerHTML = "";
+  g.hand.forEach(function(c){
+    h.appendChild(cardEl(c, function(){ act(g.defender == me ? "defend" : "attack", c); }));
+  });
+  var st;
+  if(g.over) st = srv(g.msg);
+  else if(g.out) st = t("outs");
+  else if(g.defender == me) st = t("def");
+  else if(g.attacker == me) st = t("att");
+  else st = t("help");
+  if(!g.over && g.msg) st += " (" + srv(g.msg) + ")";
+  document.getElementById("gstatus").textContent = st;
+  var active = !g.over && !g.out;
+  document.getElementById("btake").style.display = (active && g.defender == me) ? "block" : "none";
+  document.getElementById("bdone").style.display = (active && g.defender != me) ? "block" : "none";
+}
+
+function send(){
+  var i = document.getElementById("msg");
+  if(i.value){ ws.send(JSON.stringify({type: "msg", text: i.value})); i.value = ""; }
+}
+
+function act(action, card){
+  ws.send(JSON.stringify({type: "game", action: action, card: card || null}));
+}
+
+document.addEventListener("keydown", function(e){
+  if(e.key == "Enter" && ws && document.getElementById("chat").style.display == "flex") send();
+});
+
+applyLang();
+if(tok && me) toRoom();
+</script></body></html>

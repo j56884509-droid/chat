@@ -1,0 +1,180 @@
+import json
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request
+from fastapi.responses import HTMLResponse, JSONResponse
+import db
+from durak import Durak
+
+app = FastAPI()
+rooms = {}
+games = {}
+lobbies = {}
+
+async def broadcast(room, data):
+    for ws, _ in rooms.get(room, []):
+        await ws.send_text(json.dumps(data))
+
+async def say(room, text):
+    await broadcast(room, {"type": "system", "text": text})
+
+async def tell(room, name, text):
+    for ws, n in rooms.get(room, []):
+        if n == name:
+            await ws.send_text(json.dumps({"type": "err", "text": text}))
+
+async def send_game(room):
+    g = games.get(room)
+    if not g:
+        return
+    for ws, name in rooms.get(room, []):
+        if name in g.players:
+            await ws.send_text(json.dumps(g.state(name)))
+
+async def send_lobby(room):
+    l = lobbies.get(room)
+    if not l:
+        await broadcast(room, {"type": "lobby", "gone": True})
+    else:
+        await broadcast(room, {"type": "lobby", "host": l["host"], "players": l["players"]})
+
+async def player_left(room, name):
+    l = lobbies.get(room)
+    if l and name in l["players"]:
+        l["players"].remove(name)
+        if l["players"]:
+            l["host"] = l["players"][0]
+        else:
+            del lobbies[room]
+        await send_lobby(room)
+    g = games.get(room)
+    if g and name in g.players:
+        del games[room]
+        await broadcast(room, {"type": "game", "gone": True})
+        if not g.over:
+            await say(room, "O'yin to'xtadi")
+
+async def handle_game(room, name, data):
+    action = data.get("action")
+    g = games.get(room)
+    l = lobbies.get(room)
+    if action == "join":
+        if g and not g.over:
+            await tell(room, name, "O'yin allaqachon boshlangan")
+            return
+        if g and g.over:
+            del games[room]
+            await broadcast(room, {"type": "game", "gone": True})
+        if not l:
+            l = {"host": name, "players": []}
+            lobbies[room] = l
+            await say(room, name + " durak o'yiniga odam yig'moqda")
+        if name in l["players"]:
+            return
+        if len(l["players"]) >= 4:
+            await tell(room, name, "O'yinda 4 kishi to'lgan")
+            return
+        l["players"].append(name)
+        await send_lobby(room)
+    elif action == "leave":
+        if l and name in l["players"]:
+            l["players"].remove(name)
+            if l["players"]:
+                l["host"] = l["players"][0]
+            else:
+                del lobbies[room]
+            await send_lobby(room)
+    elif action == "start":
+        if not l or name != l["host"]:
+            await tell(room, name, "Faqat boshlovchi o'yinni boshlay oladi")
+            return
+        if len(l["players"]) < 2:
+            await tell(room, name, "Durak uchun kamida 2 kishi kerak")
+            return
+        players = l["players"]
+        del lobbies[room]
+        games[room] = Durak(players)
+        await send_lobby(room)
+        await say(room, "Durak boshlandi: " + ", ".join(players))
+        await send_game(room)
+    else:
+        if not g or name not in g.players:
+            return
+        err = g.act(name, action, data.get("card"))
+        if err:
+            await tell(room, name, err)
+            return
+        await send_game(room)
+        if g.over:
+            await say(room, g.msg)
+
+@app.get("/")
+async def home():
+    return HTMLResponse(open("index.html", encoding="utf-8").read())
+
+@app.post("/register")
+async def do_register(req: Request):
+    d = await req.json()
+    name = d.get("name", "").strip()
+    pw = d.get("password", "")
+    if not (2 <= len(name) <= 20) or len(pw) < 4:
+        return JSONResponse({"error": "Ism 2-20 harf, parol kamida 4 belgi bo'lsin"}, status_code=400)
+    token = db.register(name, pw)
+    if not token:
+        return JSONResponse({"error": "Bu ism band"}, status_code=400)
+    return {"token": token, "name": name}
+
+@app.post("/login")
+async def do_login(req: Request):
+    d = await req.json()
+    name = d.get("name", "").strip()
+    token = db.login(name, d.get("password", ""))
+    if not token:
+        return JSONResponse({"error": "Ism yoki parol noto'g'ri"}, status_code=400)
+    return {"token": token, "name": name}
+
+@app.get("/profile/{name}")
+async def get_profile(name: str):
+    p = db.get_profile(name)
+    if not p:
+        return JSONResponse({"error": "Topilmadi"}, status_code=404)
+    p["online"] = any(n == name for lst in rooms.values() for _, n in lst)
+    return p
+
+@app.post("/profile")
+async def save_profile(req: Request):
+    d = await req.json()
+    name = db.name_by_token(d.get("token", ""))
+    if not name:
+        return JSONResponse({"error": "Kirish kerak"}, status_code=401)
+    db.set_profile(name, d.get("avatar", "🙂")[:8], d.get("bio", ""))
+    return {"ok": True}
+
+@app.websocket("/ws/{room}/{token}")
+async def chat(ws: WebSocket, room: str, token: str):
+    name = db.name_by_token(token)
+    await ws.accept()
+    if not name:
+        await ws.close()
+        return
+    rooms.setdefault(room, []).append((ws, name))
+    for m in db.last_messages(room):
+        await ws.send_text(json.dumps(m))
+    await broadcast(room, {"type": "system", "text": name + " qo'shildi"})
+    await send_lobby(room)
+    await send_game(room)
+    try:
+        while True:
+            data = json.loads(await ws.receive_text())
+            if data["type"] == "msg":
+                text = data["text"].strip()[:1000]
+                if not text:
+                    continue
+                db.save_message(room, name, text)
+                avatar = db.get_profile(name)["avatar"]
+                await broadcast(room, {"type": "msg", "name": name, "text": text, "avatar": avatar})
+            elif data["type"] == "game":
+                await handle_game(room, name, data)
+    except WebSocketDisconnect:
+        rooms[room].remove((ws, name))
+        await broadcast(room, {"type": "system", "text": name + " chiqib ketdi"})
+        if not any(n == name for _, n in rooms[room]):
+            await player_left(room, name)
