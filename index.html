@@ -75,7 +75,7 @@ button.alt{background:#2b3a4a}
 
 #modal{display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);align-items:center;justify-content:center;z-index:10}
 #card{background:#17212b;border-radius:16px;padding:18px;width:85%;max-width:340px;display:flex;flex-direction:column;gap:10px;text-align:center}
-#pav{font-size:64px}
+#pav{font-size:64px;display:flex;justify-content:center}
 #pbio{color:#c0ccd8}
 #pedit{display:none}
 #pick{display:flex;flex-wrap:wrap;gap:6px;justify-content:center;margin-bottom:8px}
@@ -168,6 +168,8 @@ button.alt{background:#2b3a4a}
 <div id="pstat"></div>
 <div id="pbio"></div>
 <div id="pedit">
+<button class="alt" data-i18n="photo" onclick="$('pfile').click()" style="width:100%;margin-bottom:8px"></button>
+<input type="file" id="pfile" accept="image/*" style="display:none" onchange="uploadAvatar(this)">
 <div id="pick"></div>
 <textarea id="bioin" maxlength="200" data-ph="bio"></textarea>
 <button data-i18n="save" onclick="saveP()" style="width:100%"></button>
@@ -198,7 +200,7 @@ var T = {
        nobio:"Hali hech narsa yozilmagan", att:"Siz hujum qilasiz", def:"Siz himoyalanasiz",
        help:"Siz ham mos karta tashlab yordam bera olasiz", outs:"Siz kartalaringizni tugatdingiz ✅",
        cards:" karta", deck:"Kolod: ", trump:"Kozir: ", relogin:"Qayta kiring",
-       lost:"Aloqa uzildi. Xonani qayta oching.", big:"Fayl juda katta (25 MB gacha)", upfail:"Yuborib bo'lmadi", sending:"Yuborilmoqda...",
+       lost:"Aloqa uzildi. Xonani qayta oching.", big:"Fayl juda katta (25 MB gacha)", photo:"📷 Rasm tanlash", upfail:"Yuborib bo'lmadi", sending:"Yuborilmoqda...",
        ltitle:"🃏 Durak: o'yinchilar (2-4)", ljoin:"Qo'shilish", lleave:"Bekor qilish", lstart:"Boshlash"},
   ru: {title:"Чат", name:"Имя", pass:"Пароль", login:"Вход", register:"Регистрация",
        room:"Название новой комнаты", logout:"Выйти", empty:"Выберите чат или добавьте новую комнату",
@@ -208,7 +210,7 @@ var T = {
        nobio:"Пока ничего не написано", att:"Вы атакуете", def:"Вы защищаетесь",
        help:"Вы тоже можете подкидывать подходящие карты", outs:"У вас закончились карты ✅",
        cards:" карт", deck:"Колода: ", trump:"Козырь: ", relogin:"Войдите снова",
-       lost:"Соединение потеряно. Откройте комнату заново.", big:"Файл слишком большой (до 25 МБ)", upfail:"Не удалось отправить", sending:"Отправка...",
+       lost:"Соединение потеряно. Откройте комнату заново.", big:"Файл слишком большой (до 25 МБ)", photo:"📷 Выбрать фото", upfail:"Не удалось отправить", sending:"Отправка...",
        ltitle:"🃏 Дурак: игроки (2-4)", ljoin:"Присоединиться", lleave:"Выйти", lstart:"Начать"},
   en: {title:"Chat", name:"Name", pass:"Password", login:"Login", register:"Sign up",
        room:"New room name", logout:"Log out", empty:"Pick a chat or add a new room",
@@ -218,7 +220,7 @@ var T = {
        nobio:"Nothing written yet", att:"You are attacking", def:"You are defending",
        help:"You can also add matching cards", outs:"You are out of cards ✅",
        cards:" cards", deck:"Deck: ", trump:"Trump: ", relogin:"Please log in again",
-       lost:"Connection lost. Reopen the room.", big:"File is too large (up to 25 MB)", upfail:"Could not send", sending:"Sending...",
+       lost:"Connection lost. Reopen the room.", big:"File is too large (up to 25 MB)", photo:"📷 Choose photo", upfail:"Could not send", sending:"Sending...",
        ltitle:"🃏 Durak: players (2-4)", ljoin:"Join", lleave:"Leave", lstart:"Start"}
 };
 
@@ -465,7 +467,7 @@ function addMsg(m, raw){
     b.className = "b" + (mine ? " me" : "");
     if(!mine){
       var av = document.createElement("div");
-      av.className = "av"; av.textContent = m.avatar || "🙂";
+      av.className = "av"; setAv(av, m.avatar, 34);
       av.onclick = function(){ openProfile(m.name); };
       row.appendChild(av);
       var n = document.createElement("div");
@@ -519,7 +521,7 @@ function addMsg(m, raw){
 function openProfile(name){
   fetch("/profile/" + encodeURIComponent(name)).then(function(r){ return r.json(); }).then(function(p){
     if(p.error) return;
-    $("pav").textContent = p.avatar;
+    setAv($("pav"), p.avatar, 96);
     $("pname").textContent = p.name;
     $("pstat").textContent = p.online ? t("online") : t("offline");
     $("pbio").textContent = p.bio || t("nobio");
@@ -534,12 +536,44 @@ function openProfile(name){
       AVS.forEach(function(a){
         var sp = document.createElement("span");
         sp.className = "opt"; sp.textContent = a;
-        sp.onclick = function(){ chosen = a; $("pav").textContent = a; };
+        sp.onclick = function(){ chosen = a; setAv($("pav"), a, 96); };
         pk.appendChild(sp);
       });
     }
     $("modal").style.display = "flex";
   });
+}
+
+function isImg(a){ return /^\/uploads\/[\w\-]+\.(jpg|png|gif|webp)$/.test(a || ""); }
+
+function setAv(el, a, px){
+  el.textContent = "";
+  if(isImg(a)){
+    var im = document.createElement("img");
+    im.src = a;
+    im.style.cssText = "width:" + px + "px;height:" + px + "px;object-fit:cover;border-radius:50%;display:block";
+    el.appendChild(im);
+  } else el.textContent = a || "🙂";
+}
+
+function uploadAvatar(inp){
+  var f = inp.files[0]; inp.value = "";
+  if(!f) return;
+  var img = new Image();
+  img.onload = function(){
+    var s = Math.min(img.width, img.height), c = document.createElement("canvas");
+    c.width = 256; c.height = 256;
+    c.getContext("2d").drawImage(img, (img.width - s) / 2, (img.height - s) / 2, s, s, 0, 0, 256, 256);
+    URL.revokeObjectURL(img.src);
+    c.toBlob(function(blob){
+      fetch("/upload?token=" + encodeURIComponent(tok), {
+        method: "POST", headers: {"Content-Type": "image/jpeg"}, body: blob
+      }).then(function(r){ return r.json(); }).then(function(d){
+        if(d.url){ chosen = d.url; setAv($("pav"), d.url, 96); }
+      }).catch(function(){});
+    }, "image/jpeg", 0.85);
+  };
+  img.src = URL.createObjectURL(f);
 }
 
 function closeP(){ $("modal").style.display = "none"; }

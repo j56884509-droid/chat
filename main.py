@@ -291,7 +291,10 @@ async def save_profile(req: Request):
     name = db.name_by_token(d.get("token", ""))
     if not name:
         return JSONResponse({"error": "Kirish kerak"}, status_code=401)
-    db.set_profile(name, d.get("avatar", "🙂")[:8], d.get("bio", ""))
+    avatar = d.get("avatar", "🙂")
+    if not re.fullmatch(r"/uploads/[\w\-]+\.(jpg|png|gif|webp)", avatar):
+        avatar = avatar[:8]
+    db.set_profile(name, avatar, d.get("bio", ""))
     return {"ok": True}
 
 @app.websocket("/ws/{room}/{token}")
