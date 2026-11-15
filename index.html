@@ -486,17 +486,24 @@ function addMsg(m, raw){
       tx.className = "tx"; tx.textContent = m.text;
       b.appendChild(tx);
       if(!mine && TR && m.text.length <= 450){
-        var trd = document.createElement("div");
-        trd.className = "trn"; trd.style.display = "none";
-        b.appendChild(trd);
+        tx.style.opacity = ".55";
         fetch("/translate?text=" + encodeURIComponent(m.text) + "&to=" + LANG)
           .then(function(r){ return r.json(); })
           .then(function(d){
+            tx.style.opacity = "";
             if(d.text && d.text.trim().toLowerCase() != m.text.trim().toLowerCase()){
-              trd.textContent = d.text; trd.style.display = "block";
+              var base = tm.textContent, translated = true;
+              tx.textContent = d.text;
+              tm.textContent = "🌐 " + base;
+              tx.style.cursor = "pointer";
+              tx.onclick = function(){
+                translated = !translated;
+                tx.textContent = translated ? d.text : m.text;
+                tm.textContent = (translated ? "🌐 " : "") + base;
+              };
               $("log").scrollTop = $("log").scrollHeight;
             }
-          }).catch(function(){});
+          }).catch(function(){ tx.style.opacity = ""; });
       }
     }
     var tm = document.createElement("div");

@@ -136,17 +136,72 @@ async def handle_game(room, name, data):
         await send_game(room)
         if g.over:
             await say(room, g.msg)
-from deep_translator import GoogleTranslator
-
 import re
-from deep_translator import MyMemoryTranslator
+import time
 
 TR_CACHE = {}
 LANG_NAMES = {"uz": "uzbek", "ru": "russian", "en": "english"}
+
+def tr_google(text, src, to):
+    from deep_translator import GoogleTranslator
+    return GoogleTranslator(source=src, target=to).translate(text)
+
+def tr_bing(text, src, to):
+    import translators as ts
+    return ts.translate_text(text, translator="bing", from_language=src, to_language=to)
+
+def tr_yandex(text, src, to):
+    import translators as ts
+    return ts.translate_text(text, translator="yandex", from_language=src, to_language=to)
+
+def tr_mymemory(text, src, to):
+    from deep_translator import MyMemoryTranslator
+    return MyMemoryTranslator(source=LANG_NAMES[src], target=LANG_NAMES[to]).translate(text)
+
+ENGINES = [("google", tr_google), ("bing", tr_bing), ("yandex", tr_yandex), ("mymemory", tr_mymemory)]
+COOLDOWN = {}
 EN_WORDS = {"the", "is", "are", "you", "i", "and", "to", "a", "of", "in", "it",
             "what", "how", "hello", "hi", "hey", "thanks", "thank", "please",
             "yes", "ok", "good", "this", "that", "my", "we", "can", "not",
             "with", "for", "have", "your", "where", "when", "why", "who"}
+
+def guess_lang(text):
+    if re.search("[а-яА-ЯёЁ]", text):
+        return "ru"
+    words = re.findall("[a-z'’ʻʼ‘]+", text.lower())
+    if any(w in EN_WORDS for w in words):
+        return "en"
+    return "uz"
+
+def run_engines(text, src, to):
+    for name, fn in ENGINES:
+        if COOLDOWN.get(name, 0) > time.time():
+            continue
+        try:
+            result = fn(text, src, to)
+            if result:
+                print("tarjima:", name)
+                return result
+        except Exception as e:
+            print("xato:", name, str(e)[:80])
+            COOLDOWN[name] = time.time() + 600
+    return None
+
+@app.get("/translate")
+def translate(text: str, to: str = "ru"):
+    if to not in LANG_NAMES or len(text) > 450:
+        return {"text": text}
+    src = guess_lang(text)
+    if src == to:
+        return {"text": text}
+    key = (text, to)
+    if key in TR_CACHE:
+        return {"text": TR_CACHE[key]}
+    result = run_engines(text, src, to)
+    if not result:
+        return {"text": text}
+    TR_CACHE[key] = result
+    return {"text": result}
 
 def guess_lang(text):
     if re.search("[а-яА-ЯёЁ]", text):
