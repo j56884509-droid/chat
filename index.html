@@ -22,11 +22,12 @@ button.alt{background:#2b3a4a}
 #snew{display:flex;gap:6px;padding:0 10px 10px}
 #room{flex:1;min-width:0;background:#242f3d;color:#fff;padding:10px}
 #snew button{padding:10px 14px}
+#usearch{margin:0 10px 8px;background:#242f3d;color:#fff;padding:10px;width:calc(100% - 20px)}
 #rooms{flex:1;overflow:auto}
 .ri{display:flex;align-items:center;gap:10px;padding:10px 12px;cursor:pointer}
 .ri:hover{background:#202b36}
 .ri.act{background:#2b5278}
-.ra{width:46px;height:46px;border-radius:50%;background:linear-gradient(135deg,#5ab0f0,#2b6cb0);display:flex;align-items:center;justify-content:center;font-size:20px;font-weight:600;flex:none}
+.ra{width:46px;height:46px;overflow:hidden;border-radius:50%;background:linear-gradient(135deg,#5ab0f0,#2b6cb0);display:flex;align-items:center;justify-content:center;font-size:20px;font-weight:600;flex:none}
 .rn{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .rx{background:none;color:#8899aa;padding:4px 8px;font-size:14px}
 #noroom{padding:16px;color:#8899aa;font-size:14px}
@@ -118,6 +119,8 @@ button.alt{background:#2b3a4a}
 <input id="room" data-ph="room">
 <button onclick="addRoom()">＋</button>
 </div>
+<input id="usearch" data-ph="search" oninput="searchUsers()">
+<div id="sres"></div>
 <div id="rooms"></div>
 </div>
 
@@ -182,7 +185,7 @@ button.alt{background:#2b3a4a}
 var ws = null, got = false, lastGame = null, curRoom = null;
 var tok = localStorage.getItem("tok"), me = localStorage.getItem("me");
 var LANG = localStorage.getItem("lang") || "uz";
-var ROOMS = [];
+var ROOMS = [], DMS = [], sTimer = null;
 try { ROOMS = JSON.parse(localStorage.getItem("rooms") || "[]"); } catch(e) { ROOMS = []; }
 var SUITS = ["♠","♥","♦","♣"];
 var RANKS = ["6","7","8","9","10","J","Q","K","A"];
@@ -200,7 +203,7 @@ var T = {
        nobio:"Hali hech narsa yozilmagan", att:"Siz hujum qilasiz", def:"Siz himoyalanasiz",
        help:"Siz ham mos karta tashlab yordam bera olasiz", outs:"Siz kartalaringizni tugatdingiz ✅",
        cards:" karta", deck:"Kolod: ", trump:"Kozir: ", relogin:"Qayta kiring",
-       lost:"Aloqa uzildi. Xonani qayta oching.", big:"Fayl juda katta (25 MB gacha)", photo:"📷 Rasm tanlash", upfail:"Yuborib bo'lmadi", sending:"Yuborilmoqda...",
+       lost:"Aloqa uzildi. Xonani qayta oching.", big:"Fayl juda katta (25 MB gacha)", photo:"📷 Rasm tanlash", search:"Odamni ism bo'yicha qidirish", upfail:"Yuborib bo'lmadi", sending:"Yuborilmoqda...",
        ltitle:"🃏 Durak: o'yinchilar (2-4)", ljoin:"Qo'shilish", lleave:"Bekor qilish", lstart:"Boshlash"},
   ru: {title:"Чат", name:"Имя", pass:"Пароль", login:"Вход", register:"Регистрация",
        room:"Название новой комнаты", logout:"Выйти", empty:"Выберите чат или добавьте новую комнату",
@@ -210,7 +213,7 @@ var T = {
        nobio:"Пока ничего не написано", att:"Вы атакуете", def:"Вы защищаетесь",
        help:"Вы тоже можете подкидывать подходящие карты", outs:"У вас закончились карты ✅",
        cards:" карт", deck:"Колода: ", trump:"Козырь: ", relogin:"Войдите снова",
-       lost:"Соединение потеряно. Откройте комнату заново.", big:"Файл слишком большой (до 25 МБ)", photo:"📷 Выбрать фото", upfail:"Не удалось отправить", sending:"Отправка...",
+       lost:"Соединение потеряно. Откройте комнату заново.", big:"Файл слишком большой (до 25 МБ)", photo:"📷 Выбрать фото", search:"Найти человека по имени", upfail:"Не удалось отправить", sending:"Отправка...",
        ltitle:"🃏 Дурак: игроки (2-4)", ljoin:"Присоединиться", lleave:"Выйти", lstart:"Начать"},
   en: {title:"Chat", name:"Name", pass:"Password", login:"Login", register:"Sign up",
        room:"New room name", logout:"Log out", empty:"Pick a chat or add a new room",
@@ -220,7 +223,7 @@ var T = {
        nobio:"Nothing written yet", att:"You are attacking", def:"You are defending",
        help:"You can also add matching cards", outs:"You are out of cards ✅",
        cards:" cards", deck:"Deck: ", trump:"Trump: ", relogin:"Please log in again",
-       lost:"Connection lost. Reopen the room.", big:"File is too large (up to 25 MB)", photo:"📷 Choose photo", upfail:"Could not send", sending:"Sending...",
+       lost:"Connection lost. Reopen the room.", big:"File is too large (up to 25 MB)", photo:"📷 Choose photo", search:"Find a person by name", upfail:"Could not send", sending:"Sending...",
        ltitle:"🃏 Durak: players (2-4)", ljoin:"Join", lleave:"Leave", lstart:"Start"}
 };
 
@@ -336,13 +339,14 @@ function showApp(){
   $("sme").textContent = "👤 " + me;
   screen("app");
   renderRooms();
+  loadDms();
 }
 
 function logout(){
   dropWs();
   localStorage.removeItem("tok");
   localStorage.removeItem("me");
-  tok = null; me = null; curRoom = null;
+  tok = null; me = null; curRoom = null; DMS = [];
   $("chat").style.display = "none";
   $("empty").style.display = "block";
   $("app").classList.remove("inchat");
@@ -354,7 +358,7 @@ function saveRooms(){ localStorage.setItem("rooms", JSON.stringify(ROOMS)); }
 
 function addRoom(){
   var r = $("room").value.trim();
-  if(!r) return;
+  if(!r || r.toLowerCase().indexOf("dm:") == 0) return;
   $("room").value = "";
   if(ROOMS.indexOf(r) < 0){ ROOMS.unshift(r); saveRooms(); }
   openRoom(r);
@@ -367,16 +371,64 @@ function removeRoom(r){
   renderRooms();
 }
 
+function dmRoom(other){ return "dm:" + [me, other].sort().join("|"); }
+
+function loadDms(){
+  fetch("/dms?token=" + encodeURIComponent(tok)).then(function(r){ return r.json(); }).then(function(l){
+    if(Array.isArray(l)){ DMS = l; renderRooms(); }
+  }).catch(function(){});
+}
+
+function openDm(u){
+  if(!DMS.some(function(x){ return x.name == u.name; })) DMS.unshift(u);
+  $("usearch").value = "";
+  $("sres").innerHTML = "";
+  openRoom(dmRoom(u.name), u.name);
+}
+
+function searchUsers(){
+  clearTimeout(sTimer);
+  var q = $("usearch").value.trim();
+  if(!q){ $("sres").innerHTML = ""; return; }
+  sTimer = setTimeout(function(){
+    fetch("/users?q=" + encodeURIComponent(q) + "&token=" + encodeURIComponent(tok))
+      .then(function(r){ return r.json(); }).then(function(l){
+        var box = $("sres"); box.innerHTML = "";
+        if(!Array.isArray(l)) return;
+        l.forEach(function(u){
+          var d = document.createElement("div"); d.className = "ri";
+          var a = document.createElement("div"); a.className = "ra"; setAv(a, u.avatar, 46);
+          var n = document.createElement("div"); n.className = "rn"; n.textContent = u.name;
+          d.onclick = function(){ openDm(u); };
+          d.appendChild(a); d.appendChild(n);
+          box.appendChild(d);
+        });
+      }).catch(function(){});
+  }, 300);
+}
+
 function renderRooms(){
   var box = $("rooms");
   if(!box) return;
   box.innerHTML = "";
-  if(!ROOMS.length){
+  if(!ROOMS.length && !DMS.length){
     var e = document.createElement("div");
     e.id = "noroom"; e.textContent = t("norooms");
     box.appendChild(e);
     return;
   }
+  DMS.forEach(function(u){
+    var room = dmRoom(u.name);
+    var d = document.createElement("div");
+    d.className = "ri" + (room == curRoom ? " act" : "");
+    var a = document.createElement("div");
+    a.className = "ra"; setAv(a, u.avatar, 46);
+    var n = document.createElement("div");
+    n.className = "rn"; n.textContent = u.name;
+    d.onclick = function(){ openRoom(room, u.name); };
+    d.appendChild(a); d.appendChild(n);
+    box.appendChild(d);
+  });
   ROOMS.forEach(function(r){
     var d = document.createElement("div");
     d.className = "ri" + (r == curRoom ? " act" : "");
@@ -398,7 +450,7 @@ function dropWs(){
   if(ws){ var old = ws; ws = null; old.onclose = null; old.close(); }
 }
 
-function openRoom(room){
+function openRoom(room, title){
   dropWs();
   curRoom = room;
   got = false;
@@ -406,7 +458,7 @@ function openRoom(room){
   $("log").innerHTML = "";
   $("game").style.display = "none";
   $("lobby").style.display = "none";
-  $("rtitle").textContent = "# " + room;
+  $("rtitle").textContent = title || ("# " + room);
   $("empty").style.display = "none";
   $("chat").style.display = "flex";
   $("app").classList.add("inchat");

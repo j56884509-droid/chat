@@ -296,6 +296,32 @@ async def save_profile(req: Request):
         avatar = avatar[:8]
     db.set_profile(name, avatar, d.get("bio", ""))
     return {"ok": True}
+@app.get("/users")
+def find_users(q: str = "", token: str = ""):
+    me = db.name_by_token(token)
+    q = q.strip()
+    if not me or not q:
+        return []
+    rows = db.conn.execute(
+        "SELECT name, avatar FROM users WHERE name LIKE ? AND name != ? LIMIT 20",
+        ("%" + q + "%", me)).fetchall()
+    return [{"name": r[0], "avatar": r[1]} for r in rows]
+
+@app.get("/dms")
+def my_dms(token: str = ""):
+    me = db.name_by_token(token)
+    if not me:
+        return []
+    rows = db.conn.execute("SELECT DISTINCT room FROM messages WHERE room LIKE 'dm:%'").fetchall()
+    out = []
+    for (room,) in rows:
+        pair = room[3:].split("|")
+        if len(pair) == 2 and me in pair:
+            other = pair[1] if pair[0] == me else pair[0]
+            p = db.get_profile(other)
+            if p:
+                out.append({"name": other, "avatar": p["avatar"]})
+    return out
 
 @app.websocket("/ws/{room}/{token}")
 async def chat(ws: WebSocket, room: str, token: str):
@@ -304,6 +330,11 @@ async def chat(ws: WebSocket, room: str, token: str):
     if not name:
         await ws.close()
         return
+    if room.startswith("dm:"):
+        pair = room[3:].split("|")
+        if len(pair) != 2 or name not in pair:
+            await ws.close()
+            return
     rooms.setdefault(room, []).append((ws, name))
     for m in db.last_messages(room):
         await ws.send_text(json.dumps(m))
