@@ -167,6 +167,53 @@ audio.media{width:240px;height:40px;cursor:default;background:none}
 #blist{text-align:left;font-size:14px;color:var(--sub)}
 #blist .bi{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:6px 0;color:var(--text)}
 #blist .bi button{padding:6px 10px;font-size:13px}
+
+/* ===== Settings panel ===== */
+#sp{display:none;position:fixed;inset:0;z-index:12;background:var(--bg);flex-direction:column}
+#sph{display:flex;align-items:center;gap:10px;padding:8px 10px;background:var(--panel);min-height:58px;box-shadow:0 1px 0 var(--border)}
+#spt{flex:1;font-size:19px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#spc{flex:1;overflow:auto;padding-bottom:40px;width:100%;max-width:640px;margin:0 auto}
+.sec{background:var(--panel);margin-top:10px;overflow:hidden}
+.sh{padding:14px 16px 6px;color:var(--accent);font-weight:600;font-size:15px}
+.sr{display:flex;align-items:center;gap:14px;padding:12px 16px;cursor:pointer}
+.sr:hover{background:var(--hover)}
+.si{width:26px;text-align:center;font-size:20px;flex:none}
+.sx{flex:1;min-width:0}
+.sl{font-size:16px;overflow-wrap:anywhere}
+.ss{font-size:13px;color:var(--sub);margin-top:2px}
+.sv{color:var(--accent);font-size:15px;flex:none}
+.sr.dng .sl{color:#e5534b}
+.sn{padding:10px 16px;font-size:13px;color:var(--sub)}
+.tg{width:42px;height:24px;border-radius:12px;background:#667;position:relative;flex:none;transition:background .15s}
+.tg::after{content:"";position:absolute;top:2px;left:2px;width:20px;height:20px;border-radius:50%;background:#fff;transition:left .15s}
+.tg.on{background:var(--accent)}
+.tg.on::after{left:20px}
+.sld{padding:6px 16px 16px;display:flex;align-items:center;gap:14px}
+.sld input{flex:1;padding:0;background:none}
+.sld b{min-width:30px;text-align:right;color:var(--accent)}
+.spro{text-align:center;padding:22px 10px 14px;background:var(--panel)}
+.spro .ra{margin:0 auto 10px;cursor:pointer}
+.spn{font-size:20px;font-weight:600}
+.sps{color:var(--sub);font-size:14px;margin-top:2px}
+.sprev{display:flex;flex-direction:column;gap:6px;padding:16px 12px}
+.sprev .b{max-width:80%}
+.sprev .me{align-self:flex-end}
+.chips{display:flex;gap:12px;padding:10px 16px 16px;overflow-x:auto}
+.chp{width:44px;height:44px;border-radius:50%;border:3px solid transparent;flex:none;cursor:pointer;display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700}
+.chp.sq{border-radius:10px}
+.chp.on{border-color:var(--accent)}
+.apick{display:flex;flex-wrap:wrap;gap:6px;padding:8px 16px;justify-content:center}
+.sf{padding:8px 16px}
+.sf input,.sf textarea{width:100%;margin-bottom:4px}
+.sbtn{padding:12px 16px}
+.sbtn button{width:100%;margin-bottom:8px}
+.toast{position:fixed;bottom:90px;left:50%;transform:translateX(-50%);background:rgba(0,0,0,.82);color:#fff;padding:8px 16px;border-radius:16px;z-index:30;font-size:14px}
+#ftabs{display:none;gap:6px;overflow-x:auto;padding:0 10px 8px;white-space:nowrap}
+.ft{padding:6px 14px;border-radius:16px;background:var(--panel2);color:var(--sub);cursor:pointer;font-size:14px;flex:none}
+.ft.on{background:var(--accent);color:#fff}
+.l3 .rlast{white-space:normal;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
+.b{font-size:var(--fs,16px);border-radius:var(--rad,12px) var(--rad,12px) var(--rad,12px) 3px}
+.me{border-radius:var(--rad,12px) var(--rad,12px) 3px var(--rad,12px)}
 </style></head><body>
 
 <div id="login" class="screen">
@@ -188,9 +235,10 @@ audio.media{width:240px;height:40px;cursor:default;background:none}
 <span id="sme" onclick="openProfile(me)"></span>
 </div>
 <input id="usearch" data-ph="search" oninput="searchUsers()">
+<div id="ftabs"></div>
 <div id="sres"></div>
 <div id="rooms"></div>
-<button id="fab" onclick="newRoomDlg()">✏️</button>
+<button id="fab" onclick="openNewMsg()">✏️</button>
 </div>
 
 <div id="main">
@@ -242,6 +290,11 @@ audio.media{width:240px;height:40px;cursor:default;background:none}
 
 <div id="nrm" class="ov" onclick="if(event.target==this)this.style.display='none'">
 <div class="dlg"><h3 data-i18n="newroom"></h3><input id="room" data-ph="room"><button data-i18n="create" onclick="addRoom()"></button></div>
+</div>
+
+<div id="sp">
+<div id="sph"><button class="ic" onclick="spBack()">←</button><div id="spt"></div><button id="spm" class="ic" style="display:none">⋮</button></div>
+<div id="spc"></div>
 </div>
 
 <div id="menu"></div>
@@ -423,6 +476,7 @@ function applyLang(){
   updateTr();
   renderRooms();
   if(lastGame) showGame(lastGame);
+  if($("sp") && $("sp").style.display == "flex") spRender();
 }
 
 function setLang(l){
@@ -433,6 +487,7 @@ function setLang(l){
 
 function applyTheme(){
   document.documentElement.setAttribute("data-theme", THEME);
+  applyAppearance();
 }
 
 function toggleTheme(){
@@ -469,6 +524,8 @@ function showApp(){
   screen("app");
   renderRooms();
   loadChats();
+  autoNight();
+  connectUsock();
   clearInterval(pollT);
   pollT = setInterval(poll, 4000);
 }
@@ -476,6 +533,10 @@ function showApp(){
 function logout(){
   dropWs();
   clearInterval(pollT);
+  clearTimeout(usockT);
+  if(usock){ var uo = usock; usock = null; uo.onclose = null; uo.close(); }
+  LAST_UN = null; ME_PROF = null;
+  document.title = t("title");
   localStorage.removeItem("tok");
   localStorage.removeItem("me");
   tok = null; me = null; curRoom = null; CHATS = {dms: [], rooms: {}}; NEWDM = [];
@@ -524,12 +585,14 @@ function loadChats(){
       if(!d || d.error || !d.dms) return;
       CHATS = d;
       NEWDM = NEWDM.filter(function(u){ return !d.dms.some(function(x){ return x.name == u.name; }); });
+      checkNotify();
       renderRooms();
     }).catch(function(){});
 }
 
 function poll(){
   if(!tok) return;
+  autoNight();
   loadChats();
   if(isDm()) refreshStatus();
 }
@@ -613,7 +676,8 @@ function renderRooms(){
   var box = $("rooms");
   if(!box) return;
   box.innerHTML = "";
-  var items = chatItems();
+  renderFolderTabs();
+  var items = folderFilter(chatItems());
   if(!items.length){
     var e = document.createElement("div");
     e.id = "noroom"; e.textContent = t("norooms");
@@ -708,7 +772,7 @@ function popup(items, ev){
 
 function openDrawer(ev){
   popup([
-    ["⚙ " + t("settings"), function(){ openProfile(me); }],
+    ["⚙ " + t("settings"), openSettings],
     ["🌓 " + t("mtheme"), toggleTheme],
     ["🌐 " + t("mtr") + " " + (TR ? "✓" : "✗"), toggleTr],
     ["🗣 " + t("mlang") + ": " + LANG.toUpperCase(), function(){ setLang(LANG == "uz" ? "ru" : LANG == "ru" ? "en" : "uz"); }],
@@ -768,7 +832,7 @@ function openRoom(room){
   curRoom = room;
   got = false;
   lastGame = null;
-  MSGS = {}; OTHER_READ = 0; LASTID = 0; SENT_READ = 0; LASTDAY = "";
+  MSGS = {}; OTHER_READ = 0; LASTID = 0; SENT_READ = 0; LASTDAY = ""; LIVE = false;
   typingName = ""; subBase = "";
   cancelReply();
   closeSearch();
@@ -822,7 +886,7 @@ function onmsg(e){
   else if(m.type == "reads"){
     var mx = 0;
     for(var k in m.reads){ if(k != me && m.reads[k] > mx) mx = m.reads[k]; }
-    OTHER_READ = mx; updateTicks();
+    OTHER_READ = mx; updateTicks(); LIVE = true;
   }
   else if(m.type == "read"){
     if(m.name != me && m.upto > OTHER_READ){ OTHER_READ = m.upto; updateTicks(); }
@@ -842,7 +906,7 @@ function onmsg(e){
       if(dn(m) == typingName){ typingName = ""; updateSub(); }
       if(m.id){
         if(m.id > LASTID) LASTID = m.id;
-        if(m.name != me) markReadSoon();
+        if(m.name != me){ markReadSoon(); if(LIVE && PREF.nChat) beep(660); }
       }
     }
   }
@@ -932,11 +996,19 @@ function buildBody(rec){
     return;
   }
   var mm = MEDIA.exec(m.text);
+  if(mm && mm[1] == "img" && !PREF.dlPhoto && !rec.loaded){
+    var ph = document.createElement("button");
+    ph.className = "alt"; ph.textContent = t("sphoto") + " ⬇";
+    ph.onclick = function(){ rec.loaded = true; buildBody(rec); };
+    body.appendChild(ph);
+    flags(rec); tickOne(rec);
+    return;
+  }
   if(mm){
     var el = document.createElement(mm[1] == "img" ? "img" : mm[1] == "vid" ? "video" : "audio");
     el.className = "media"; el.src = mm[2];
     var down = function(){ if(rec.stick) scrollDown(); };
-    if(mm[1] == "vid"){ el.controls = true; el.preload = "metadata"; el.onloadedmetadata = down; }
+    if(mm[1] == "vid"){ el.controls = true; el.preload = PREF.dlVideo ? "metadata" : "none"; el.onloadedmetadata = down; }
     else if(mm[1] == "aud"){ el.controls = true; el.preload = "metadata"; }
     else { el.onclick = function(){ window.open(mm[2]); }; el.onload = down; }
     body.appendChild(el);
@@ -984,6 +1056,7 @@ function addMsg(m, raw){
     row.appendChild(av);
     var n = document.createElement("div");
     n.className = "n"; n.textContent = dn(m);
+    if(m.color) n.style.color = m.color;
     n.onclick = function(){ openProfile(m.name); };
     b.appendChild(n);
   }
@@ -1234,6 +1307,7 @@ function statusText(p){
 function openProfile(name){
   fetch("/profile/" + enc(name) + "?token=" + enc(tok)).then(function(r){ return r.json(); }).then(function(p){
     if(p.error) return;
+    if(p.name == me){ openSettings(); return; }
     setAv($("pav"), p.avatar, 96);
     $("pname").textContent = p.display || p.name;
     $("punm").textContent = "@" + p.name;
@@ -1334,7 +1408,7 @@ function uploadAvatar(inp){
       fetch("/upload?token=" + enc(tok), {
         method: "POST", headers: {"Content-Type": "image/jpeg"}, body: blob
       }).then(function(r){ return r.json(); }).then(function(d){
-        if(d.url){ chosen = d.url; setAv($("pav"), d.url, 96); }
+        if(d.url){ chosen = d.url; if(window.avCb){ window.avCb(d.url); } else setAv($("pav"), d.url, 96); }
       }).catch(function(){});
     }, "image/jpeg", 0.85);
   };
@@ -1415,6 +1489,666 @@ function act(action, card){
   if(ws) ws.send(JSON.stringify({type: "game", action: action, card: card || null}));
 }
 
+/* ---------- settings (Telegram style) ---------- */
+var PDEF = {fs:16, rad:12, theme:0, wp:0, l3:0, enter:1, night:0, nPriv:1, nGroup:1, nSound:1, nVib:1, nPrev:1, nBrowser:0, nChat:1, badge:1, badgeMuted:0, dlPhoto:1, dlVideo:1};
+var PREF = {};
+(function(){
+  var p = {};
+  try{ p = JSON.parse(localStorage.getItem("prefs") || "{}"); }catch(e){}
+  for(var k in PDEF) PREF[k] = (p[k] === undefined) ? PDEF[k] : p[k];
+})();
+var LIVE = false, LAST_UN = null, ME_PROF = null, usock = null, usockT = null;
+var SPSTACK = [], SPREV = 0;
+var FOLDERS = jget("folders"), CUR_FOLDER = "all";
+var MINE = [["#2b5278", "#e1f4d2"], ["#6a5cc7", "#e4def9"], ["#2f7d5d", "#d4f0dc"], ["#0f7a8c", "#d0eef2"], ["#a8456f", "#f6d9e6"]];
+var WPS = [
+  ["linear-gradient(165deg,#0e1621 0%,#14212f 100%)", "linear-gradient(165deg,#d5e5c4 0%,#a9cbbd 100%)"],
+  ["linear-gradient(165deg,#0b1d33,#16406b)", "linear-gradient(165deg,#bcd4ee,#8fb4dc)"],
+  ["linear-gradient(165deg,#0f2a21,#1c5a43)", "linear-gradient(165deg,#cfe8c8,#9cc9a6)"],
+  ["linear-gradient(165deg,#1b1533,#4a3a8a)", "linear-gradient(165deg,#ddd3f5,#b6a6e6)"],
+  ["#101a24", "#e9edf0"]
+];
+var NCOLORS = ["", "#e17076", "#faa774", "#a695e7", "#7bc862", "#6ec9cb", "#65aadd", "#ee7aae", "#e5ca77"];
+
+var S = {
+  acc:["Hisob","Аккаунт","Account"], uname:["Foydalanuvchi nomi","Имя пользователя","Username"],
+  aboutme:["Men haqimda","О себе","About me"], sett:["Sozlamalar","Настройки","Settings"],
+  chatset:["Chat sozlamalari","Настройки чатов","Chat settings"], privacy:["Maxfiylik","Конфиденциальность","Privacy"],
+  notif:["Bildirishnomalar va tovushlar","Уведомления и звуки","Notifications and sounds"],
+  datas:["Ma'lumotlar va xotira","Данные и память","Data and storage"],
+  folders:["Chat papkalari","Папки с чатами","Chat folders"], devices:["Qurilmalar","Устройства","Devices"],
+  lang:["Til","Язык","Language"], editinfo:["Ma'lumotni o'zgartirish","Изменить информацию","Edit info"],
+  choosephoto:["Rasm tanlash","Выбрать фотографию","Choose photo"],
+  fsize:["Xabar matni o'lchami","Размер текста сообщений","Message text size"],
+  corners:["Xabar burchaklari","Углы блоков с сообщениями","Message corners"],
+  ctheme:["Rang mavzusi","Цветовая тема","Color theme"], wallp:["Fon","Обои","Wallpaper"],
+  daynight:["Kunduzgi / tungi rejimga o'tish","Переключить дневную / ночную тему","Switch day / night theme"],
+  autonight:["Kechasi avtomatik rejim","Смена темы ночью","Auto night theme"],
+  autonightsub:["21:00 dan 07:00 gacha qorong'i rejim","Тёмная тема с 21:00 до 07:00","Dark theme from 21:00 to 07:00"],
+  chatlist:["Chatlar ro'yxati","Список чатов","Chat list"], l2:["Ikki qatorli","Двустрочный","Two-line"],
+  l3:["Uch qatorli","Трёхстрочный","Three-line"], entersend:["Enter bilan yuborish","Отправка по Enter","Send with Enter"],
+  autotr:["Avtomatik tarjima","Автоперевод","Auto-translate"],
+  autotrsub:["Boshqalarning xabarlari o'z tilingizga tarjima qilinadi","Чужие сообщения переводятся на ваш язык","Others' messages are translated to your language"],
+  security:["Xavfsizlik","Безопасность","Security"], blacklist:["Qora ro'yxat","Чёрный список","Blocked users"],
+  lseen:["Oxirgi marta onlayn","Время захода","Last seen"], pphoto:["Profil rasmi","Фотографии профиля","Profile photo"],
+  pbio:["Men haqimda (bio)","О себе","About"], everybody:["Hamma","Все","Everybody"], nobody:["Hech kim","Никто","Nobody"],
+  onlymine:["Faqat men yozganlar","Только те, кому я писал(а)","Only people I wrote to"],
+  whowrite:["Menga kim yoza oladi","Кто может мне писать","Who can message me"],
+  privnote:["Bu sozlamalar boshqa foydalanuvchilar uchun amal qiladi.","Эти настройки действуют для других пользователей.","These settings apply to other users."],
+  chatsnotif:["Chatlardan bildirishnomalar","Уведомления из чатов","Notifications from chats"],
+  privchats:["Shaxsiy chatlar","Личные чаты","Private chats"], groups:["Guruhlar","Группы","Groups"],
+  inapp:["Ilovada","В приложении","In-app"], sound:["Tovush","Звук","Sound"], vibr:["Tebranish","Вибросигнал","Vibration"],
+  showtext:["Matnni ko'rsatish","Показывать текст","Show text"], chatsound:["Chatdagi tovush","Звук в чате","In-chat sounds"],
+  browsernotif:["Brauzer bildirishnomalari","Уведомления браузера","Browser notifications"],
+  browsernote:["Faqat HTTPS yoki localhost'da ishlaydi","Работает только по HTTPS или на localhost","Works only over HTTPS or on localhost"],
+  notifdenied:["Brauzer ruxsat bermadi","Браузер не дал разрешение","Browser denied permission"],
+  counter:["Xabarlar hisoblagichi","Счётчик сообщений","Message counter"],
+  showcounter:["Hisoblagichni ko'rsatish","Показывать счётчик","Show counter"],
+  countmuted:["Ovozsiz chatlarni ham hisoblash","Чаты без уведомлений","Count muted chats"],
+  resetnotif:["Bildirishnoma sozlamalarini tiklash","Сбросить настройки уведомлений","Reset notification settings"],
+  resetnotifsub:["Ovozsiz qilingan chatlar ham tiklanadi","Сбросить и отключённые уведомления чатов","Also un-mutes all chats"],
+  automedia:["Mediani avtomatik yuklash","Автозагрузка медиа","Auto-download media"],
+  dlphoto:["Rasmlar","Фото","Photos"], dlvideo:["Videolar","Видео","Videos"],
+  resetset:["Sozlamalarni tiklash","Сбросить настройки","Reset settings"],
+  newfolder:["Yangi papka yaratish","Создать новую папку","Create new folder"],
+  allchats:["Hamma chatlar","Все чаты","All chats"], foldername:["Papka nomi","Название папки","Folder name"],
+  foldernote:["Papkalar faqat shu qurilmada saqlanadi.","Папки хранятся только на этом устройстве.","Folders are stored on this device only."],
+  includedchats:["Papkadagi chatlar","Чаты в папке","Chats in folder"], delete:["O'chirish","Удалить","Delete"],
+  thisdev:["Bu qurilma","Это устройство","This device"], onl:["onlayn","в сети","online"],
+  endothers:["Boshqa barcha seanslarni tugatish","Завершить все другие сеансы","End all other sessions"],
+  activesess:["Faol seanslar","Активные сеансы","Active sessions"],
+  lastact:["so'nggi faollik: ","последняя активность: ","last active: "],
+  autoend:["Faol bo'lmasa seansni tugatish","Автоматически завершать сеансы","Auto-end inactive sessions"],
+  mo:["oy","мес.","mo."], newmsg:["Yangi xabar","Новое сообщение","New message"],
+  creategroup:["Guruh (xona) yaratish","Создать группу (комнату)","Create group (room)"],
+  recentchats:["Yaqinda yozishganlar","Недавние чаты","Recent chats"],
+  copied:["Nusxalandi","Скопировано","Copied"],
+  unamenote:["@username hozircha o'zgarmaydi: u kirish nomingiz.","@username пока нельзя изменить: это ваше имя для входа.","@username can't be changed yet: it is your login name."],
+  pv1:["Salom! Qalaysan? 👋","Привет! Как дела? 👋","Hi! How are you? 👋"], pv2:["Zo'r, rahmat 😎","Отлично, спасибо 😎","Great, thanks 😎"],
+  nameclr:["Ism rangi","Цвет имени","Name color"], nofolders:["Papkalar yo'q","Папок нет","No folders"],
+  none:["—","—","—"]
+};
+function L(k){ var a = S[k]; if(!a) return k; return a[LANG == "uz" ? 0 : LANG == "ru" ? 1 : 2]; }
+
+function savePrefs(){ localStorage.setItem("prefs", JSON.stringify(PREF)); }
+
+function wpBg(){ var w = WPS[PREF.wp] || WPS[0]; return THEME == "light" ? w[1] : w[0]; }
+
+function applyAppearance(){
+  var r = document.documentElement.style;
+  r.setProperty("--fs", PREF.fs + "px");
+  r.setProperty("--rad", PREF.rad + "px");
+  var m = MINE[PREF.theme] || MINE[0];
+  if(!PREF.theme) r.removeProperty("--mine"); else r.setProperty("--mine", THEME == "light" ? m[1] : m[0]);
+  var lg = $("log");
+  if(lg) lg.style.background = wpBg();
+  var pv = document.querySelector(".sprev");
+  if(pv) pv.style.background = wpBg();
+  var ap = $("app");
+  if(ap) ap.classList.toggle("l3", !!PREF.l3);
+}
+
+function autoNight(){
+  if(!PREF.night) return;
+  var h = new Date().getHours();
+  var want = (h >= 21 || h < 7) ? "dark" : "light";
+  if(want != THEME){ THEME = want; applyTheme(); }
+}
+
+/* ---- tiny UI builders ---- */
+function mk(tag, cls, text){
+  var e = document.createElement(tag);
+  if(cls) e.className = cls;
+  if(text != null) e.textContent = text;
+  return e;
+}
+function secEl(box, title){
+  var sc = mk("div", "sec");
+  if(title) sc.appendChild(mk("div", "sh", title));
+  box.appendChild(sc);
+  return sc;
+}
+function rowEl(sec, icon, label, sub, right, fn, cls){
+  var r = mk("div", "sr" + (cls ? " " + cls : ""));
+  if(icon) r.appendChild(mk("div", "si", icon));
+  var x = mk("div", "sx");
+  x.appendChild(mk("div", "sl", label));
+  if(sub) x.appendChild(mk("div", "ss", sub));
+  r.appendChild(x);
+  if(right) r.appendChild(mk("div", "sv", right));
+  if(fn) r.onclick = fn;
+  sec.appendChild(r);
+  return r;
+}
+function toggleRow(sec, icon, label, sub, getv, setv){
+  var r = rowEl(sec, icon, label, sub, "", null);
+  var g = mk("div", "tg" + (getv() ? " on" : ""));
+  r.appendChild(g);
+  r.onclick = function(){ setv(!getv()); g.className = "tg" + (getv() ? " on" : ""); };
+  return r;
+}
+function prefToggle(sec, icon, label, sub, key, after){
+  return toggleRow(sec, icon, label, sub, function(){ return !!PREF[key]; }, function(v){
+    PREF[key] = v ? 1 : 0; savePrefs(); if(after) after(v);
+  });
+}
+function sliderRow(sec, key, min, max){
+  var w = mk("div", "sld");
+  var inp = document.createElement("input");
+  inp.type = "range"; inp.min = min; inp.max = max; inp.value = PREF[key];
+  var b = mk("b", null, String(PREF[key]));
+  inp.oninput = function(){ PREF[key] = parseInt(inp.value, 10); b.textContent = inp.value; savePrefs(); applyAppearance(); };
+  w.appendChild(inp); w.appendChild(b);
+  sec.appendChild(w);
+}
+function noteEl(box, text){ box.appendChild(mk("div", "sn", text)); }
+function chipRow(sec, n, cur, paint, fn, sq){
+  var w = mk("div", "chips");
+  for(var i = 0; i < n; i++){
+    (function(i){
+      var c = mk("div", "chp" + (sq ? " sq" : "") + (i == cur ? " on" : ""));
+      paint(c, i);
+      c.onclick = function(){
+        fn(i);
+        Array.prototype.forEach.call(w.children, function(e, j){ e.className = "chp" + (sq ? " sq" : "") + (j == i ? " on" : ""); });
+      };
+      w.appendChild(c);
+    })(i);
+  }
+  sec.appendChild(w);
+}
+function userRow(sec, u, fn){
+  var r = mk("div", "sr");
+  var a = mk("div", "ra");
+  a.style.width = a.style.height = "44px"; a.style.fontSize = "20px";
+  setAv(a, u.avatar, 44);
+  r.appendChild(a);
+  var x = mk("div", "sx");
+  x.appendChild(mk("div", "sl", dn(u)));
+  r.appendChild(x);
+  if(fn) r.onclick = fn;
+  sec.appendChild(r);
+  return r;
+}
+function choicePage(title, opts, cur, onPick){
+  return function(box){
+    spTitle(title);
+    var sc = secEl(box, null);
+    opts.forEach(function(o){
+      rowEl(sc, null, o[1], null, cur == o[0] ? "✓" : "", function(){ onPick(o[0]); });
+    });
+  };
+}
+function toast(text){
+  var e = mk("div", "toast", text);
+  document.body.appendChild(e);
+  setTimeout(function(){ e.remove(); }, 1700);
+}
+
+/* ---- panel navigation ---- */
+function spTitle(x){ $("spt").textContent = x; }
+function spMenu(items){
+  var b = $("spm");
+  b.style.display = "block";
+  b.onclick = function(ev){ popup(items, ev); };
+}
+function spOpen(fn){ SPSTACK = [fn]; $("sp").style.display = "flex"; closeMenu(); spRender(); }
+function spPush(fn){ SPSTACK.push(fn); spRender(); }
+function spClose(){ SPSTACK = []; $("sp").style.display = "none"; window.avCb = null; }
+function spBack(){
+  SPSTACK.pop();
+  if(!SPSTACK.length){ spClose(); loadMe(); loadChats(); return; }
+  spRender();
+}
+function spRender(){
+  var fn = SPSTACK[SPSTACK.length - 1];
+  if(!fn) return;
+  SPREV++;
+  $("spm").style.display = "none"; $("spm").onclick = null;
+  var box = $("spc");
+  box.innerHTML = "";
+  fn(box);
+}
+
+function refreshMe(){
+  return fetch("/profile/me?token=" + enc(tok)).then(function(r){ return r.json(); }).then(function(p){
+    if(p && !p.error){ ME_PROF = p; $("sme").textContent = p.display || p.name; }
+    return p;
+  });
+}
+function openSettings(){
+  refreshMe().then(function(p){ if(p && !p.error) spOpen(pgMain); }).catch(function(){});
+}
+function saveProfile(obj){
+  var d = {token: tok, avatar: ME_PROF.avatar, bio: ME_PROF.bio || "", display: ME_PROF.display, color: ME_PROF.color || ""};
+  for(var k in obj) d[k] = obj[k];
+  return fetch("/profile", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(d)})
+    .then(function(){ return refreshMe(); });
+}
+function saveSetting(obj){
+  for(var k in obj) ME_PROF[k] = obj[k];
+  fetch("/settings", {method: "POST", headers: {"Content-Type": "application/json"},
+    body: JSON.stringify(Object.assign({token: tok}, obj))}).catch(function(){});
+}
+function bigAv(parent, avatar, fn){
+  var av = mk("div", "ra");
+  av.style.width = av.style.height = "96px"; av.style.fontSize = "44px";
+  setAv(av, avatar, 96);
+  if(fn) av.onclick = fn;
+  parent.appendChild(av);
+  return av;
+}
+function pickPhoto(){
+  window.avCb = function(url){ saveProfile({avatar: url}).then(function(){ spRender(); }); };
+  $("pfile").click();
+}
+function who(v){ return v ? L("nobody") : L("everybody"); }
+
+/* ---- pages ---- */
+function pgMain(box){
+  spTitle(L("sett"));
+  spMenu([
+    ["✏️ " + L("editinfo"), function(){ spPush(pgEdit); }],
+    ["📷 " + L("choosephoto"), pickPhoto],
+    ["🚪 " + t("logout"), function(){ spClose(); logout(); }]
+  ]);
+  var pr = mk("div", "spro");
+  bigAv(pr, ME_PROF.avatar, pickPhoto);
+  var nm = mk("div", "spn", ME_PROF.display || ME_PROF.name);
+  if(ME_PROF.color) nm.style.color = ME_PROF.color;
+  pr.appendChild(nm);
+  pr.appendChild(mk("div", "sps", "● " + L("onl")));
+  box.appendChild(pr);
+  var a = secEl(box, L("acc"));
+  rowEl(a, null, "@" + ME_PROF.name, L("uname"), "", function(){ copyText("@" + ME_PROF.name); toast(L("copied")); });
+  rowEl(a, null, ME_PROF.bio || L("none"), L("aboutme"), "", function(){ spPush(pgEdit); });
+  var g = secEl(box, L("sett"));
+  rowEl(g, "💬", L("chatset"), null, "", function(){ spPush(pgChat); });
+  rowEl(g, "🔒", L("privacy"), null, "", function(){ spPush(pgPrivacy); });
+  rowEl(g, "🔔", L("notif"), null, "", function(){ spPush(pgNotif); });
+  rowEl(g, "💾", L("datas"), null, "", function(){ spPush(pgData); });
+  rowEl(g, "📁", L("folders"), null, "", function(){ spPush(pgFolders); });
+  rowEl(g, "💻", L("devices"), null, ME_PROF.sess_n ? String(ME_PROF.sess_n) : "", function(){ spPush(pgDevices); });
+  rowEl(g, "🌐", L("lang"), null, LANG.toUpperCase(), function(){
+    spPush(choicePage(L("lang"), [["uz", "O'zbekcha"], ["ru", "Русский"], ["en", "English"]], LANG, function(v){ setLang(v); spBack(); }));
+  });
+  noteEl(box, L("unamenote"));
+}
+
+function pgEdit(box){
+  spTitle(L("editinfo"));
+  var st = {avatar: ME_PROF.avatar, color: ME_PROF.color || ""};
+  var pr = mk("div", "spro");
+  var av = bigAv(pr, st.avatar, pick);
+  function pick(){
+    window.avCb = function(url){ st.avatar = url; setAv(av, url, 96); };
+    $("pfile").click();
+  }
+  var pb = mk("button", "alt", "📷 " + L("choosephoto"));
+  pb.onclick = pick;
+  pr.appendChild(pb);
+  box.appendChild(pr);
+  var ap = mk("div", "apick");
+  AVS.forEach(function(a){
+    var sp = mk("span", "opt", a);
+    sp.onclick = function(){ st.avatar = a; setAv(av, a, 96); };
+    ap.appendChild(sp);
+  });
+  var sc = secEl(box, null);
+  sc.appendChild(ap);
+  var f = secEl(box, t("dname"));
+  var w = mk("div", "sf");
+  var di = document.createElement("input");
+  di.maxLength = 30; di.value = ME_PROF.display || ME_PROF.name; di.placeholder = t("dname");
+  var bi = document.createElement("textarea");
+  bi.maxLength = 200; bi.value = ME_PROF.bio || ""; bi.placeholder = t("bio"); bi.style.height = "80px";
+  w.appendChild(di); w.appendChild(bi);
+  f.appendChild(w);
+  var cs = secEl(box, L("nameclr"));
+  chipRow(cs, NCOLORS.length, NCOLORS.indexOf(st.color), function(c, i){
+    if(NCOLORS[i]){ c.style.background = NCOLORS[i]; c.textContent = "A"; }
+    else { c.style.background = "var(--btnalt)"; c.textContent = "∅"; }
+  }, function(i){ st.color = NCOLORS[i]; });
+  var sb = mk("div", "sbtn");
+  var ok = mk("button", null, t("save"));
+  ok.onclick = function(){
+    saveProfile({avatar: st.avatar, display: di.value, bio: bi.value, color: st.color}).then(function(){ window.avCb = null; spBack(); });
+  };
+  sb.appendChild(ok);
+  box.appendChild(sb);
+}
+
+function pgChat(box){
+  spTitle(L("chatset"));
+  var pv = mk("div", "sprev");
+  pv.style.background = wpBg();
+  var b1 = mk("div", "b"); b1.style.alignSelf = "flex-start"; b1.textContent = L("pv1");
+  var b2 = mk("div", "b me"); b2.textContent = L("pv2");
+  pv.appendChild(b1); pv.appendChild(b2);
+  box.appendChild(pv);
+  var a = secEl(box, L("fsize")); sliderRow(a, "fs", 12, 24);
+  var b = secEl(box, L("corners")); sliderRow(b, "rad", 0, 20);
+  var c = secEl(box, L("ctheme"));
+  chipRow(c, MINE.length, PREF.theme, function(el, i){ el.style.background = MINE[i][0]; }, function(i){ PREF.theme = i; savePrefs(); applyAppearance(); });
+  var d = secEl(box, L("wallp"));
+  chipRow(d, WPS.length, PREF.wp, function(el, i){ el.style.background = WPS[i][0]; }, function(i){ PREF.wp = i; savePrefs(); applyAppearance(); }, true);
+  var e = secEl(box, null);
+  rowEl(e, "🌓", L("daynight"), null, "", function(){ toggleTheme(); spRender(); });
+  prefToggle(e, "🌙", L("autonight"), L("autonightsub"), "night", function(){ autoNight(); });
+  var f = secEl(box, L("chatlist"));
+  rowEl(f, null, L("l2"), null, PREF.l3 ? "" : "✓", function(){ PREF.l3 = 0; savePrefs(); applyAppearance(); spRender(); });
+  rowEl(f, null, L("l3"), null, PREF.l3 ? "✓" : "", function(){ PREF.l3 = 1; savePrefs(); applyAppearance(); spRender(); });
+  var g = secEl(box, null);
+  prefToggle(g, "⏎", L("entersend"), null, "enter");
+  toggleRow(g, "🌐", L("autotr"), L("autotrsub"), function(){ return TR; }, function(){ toggleTr(); });
+}
+
+function pgPrivacy(box){
+  spTitle(L("privacy"));
+  var a = secEl(box, L("security"));
+  rowEl(a, "🚫", L("blacklist"), null, String(ME_PROF.blocked_n || 0), function(){ spPush(pgBlocked); });
+  rowEl(a, "💻", L("devices"), null, ME_PROF.sess_n ? String(ME_PROF.sess_n) : "", function(){ spPush(pgDevices); });
+  var b = secEl(box, L("privacy"));
+  function pri(label, key){
+    rowEl(b, null, label, null, who(ME_PROF[key]), function(){
+      spPush(choicePage(label, [[0, L("everybody")], [1, L("nobody")]], ME_PROF[key] ? 1 : 0, function(v){
+        var o = {}; o[key] = v; saveSetting(o); spBack();
+      }));
+    });
+  }
+  pri(L("lseen"), "hide_seen");
+  pri(L("pphoto"), "hide_photo");
+  pri(L("pbio"), "hide_bio");
+  rowEl(b, null, L("whowrite"), null, ME_PROF.msg_priv ? L("onlymine") : L("everybody"), function(){
+    spPush(choicePage(L("whowrite"), [[0, L("everybody")], [1, L("onlymine")]], ME_PROF.msg_priv ? 1 : 0, function(v){
+      saveSetting({msg_priv: v}); spBack();
+    }));
+  });
+  noteEl(box, L("privnote"));
+}
+
+function pgBlocked(box){
+  spTitle(L("blacklist"));
+  var my = SPREV;
+  var sc = secEl(box, null);
+  fetch("/blocked?token=" + enc(tok)).then(function(r){ return r.json(); }).then(function(l){
+    if(my !== SPREV) return;
+    if(!Array.isArray(l) || !l.length){ rowEl(sc, null, t("noblocked"), null, ""); return; }
+    l.forEach(function(u){
+      var r = userRow(sc, u, null);
+      var bt = mk("button", "alt", t("unblock"));
+      bt.style.padding = "6px 10px"; bt.style.fontSize = "13px";
+      bt.onclick = function(){
+        fetch("/block", {method: "POST", headers: {"Content-Type": "application/json"},
+          body: JSON.stringify({token: tok, name: u.name, on: false})})
+          .then(function(){ return refreshMe(); }).then(function(){ spRender(); });
+      };
+      r.appendChild(bt);
+    });
+  }).catch(function(){});
+}
+
+function parseUA(ua){
+  ua = ua || "";
+  var b = /Edg\//.test(ua) ? "Edge" : /OPR\/|Opera/.test(ua) ? "Opera" : /Firefox\//.test(ua) ? "Firefox" :
+          /Chrome\/|CriOS/.test(ua) ? "Chrome" : /Safari\//.test(ua) ? "Safari" : "Browser";
+  var o = "", ic = "🌐";
+  if(/Android/.test(ua)){ o = "Android"; ic = "📱"; }
+  else if(/iPhone|iPad|iPod/.test(ua)){ o = "iOS"; ic = "📱"; }
+  else if(/Windows/.test(ua)){ o = "Windows"; ic = "🖥"; }
+  else if(/Mac OS X|Macintosh/.test(ua)){ o = "macOS"; ic = "💻"; }
+  else if(/Linux|X11/.test(ua)){ o = "Linux"; ic = "🐧"; }
+  return {name: b + (o ? " · " + o : ""), icon: ic};
+}
+
+function endSess(obj){
+  fetch("/sessions/end", {method: "POST", headers: {"Content-Type": "application/json"},
+    body: JSON.stringify(Object.assign({token: tok}, obj))})
+    .then(function(){ return refreshMe(); }).then(function(){ spRender(); }).catch(function(){});
+}
+
+function pgDevices(box){
+  spTitle(L("devices"));
+  var my = SPREV;
+  var cur = secEl(box, L("thisdev"));
+  var oth = secEl(box, null);
+  var act = secEl(box, L("activesess"));
+  var ttl = secEl(box, L("autoend"));
+  [1, 3, 6, 12].forEach(function(m){
+    rowEl(ttl, null, m + " " + L("mo"), null, (ME_PROF.sess_ttl || 6) == m ? "✓" : "", function(){
+      saveSetting({sess_ttl: m}); spRender();
+    });
+  });
+  fetch("/sessions?token=" + enc(tok)).then(function(r){ return r.json(); }).then(function(list){
+    if(my !== SPREV || !Array.isArray(list)) return;
+    var others = 0;
+    list.forEach(function(x){
+      var u = parseUA(x.ua);
+      if(x.current) rowEl(cur, u.icon, u.name, "● " + L("onl"), "", null);
+      else {
+        others++;
+        rowEl(act, u.icon, u.name, L("lastact") + (x.last_active ? fmtSeen(x.last_active) : L("none")), "✕", function(){ endSess({id: x.id}); });
+      }
+    });
+    if(others) rowEl(oth, "✋", L("endothers"), null, "", function(){ endSess({all_others: true}); }, "dng");
+    else { oth.remove(); act.remove(); }
+  }).catch(function(){});
+}
+
+function pgNotif(box){
+  spTitle(L("notif"));
+  var a = secEl(box, L("chatsnotif"));
+  prefToggle(a, "👤", L("privchats"), null, "nPriv");
+  prefToggle(a, "👥", L("groups"), null, "nGroup");
+  var b = secEl(box, L("inapp"));
+  prefToggle(b, "🔊", L("sound"), null, "nSound");
+  prefToggle(b, "📳", L("vibr"), null, "nVib");
+  prefToggle(b, "💬", L("showtext"), null, "nPrev");
+  prefToggle(b, "🎵", L("chatsound"), null, "nChat");
+  var c = secEl(box, L("browsernotif"));
+  toggleRow(c, "🖥", L("browsernotif"), L("browsernote"), function(){ return !!PREF.nBrowser; }, function(v){
+    if(!v){ PREF.nBrowser = 0; savePrefs(); return; }
+    if(!window.Notification){ toast(L("notifdenied")); return; }
+    Promise.resolve(Notification.requestPermission()).then(function(p){
+      PREF.nBrowser = (p == "granted") ? 1 : 0; savePrefs();
+      if(p != "granted") toast(L("notifdenied"));
+      spRender();
+    });
+  });
+  var d = secEl(box, L("counter"));
+  prefToggle(d, "🔢", L("showcounter"), null, "badge", function(){ checkNotify(true); });
+  prefToggle(d, "🔕", L("countmuted"), null, "badgeMuted", function(){ checkNotify(true); });
+  var e = secEl(box, null);
+  rowEl(e, "↺", L("resetnotif"), L("resetnotifsub"), "", function(){
+    ["nPriv", "nGroup", "nSound", "nVib", "nPrev", "nBrowser", "nChat", "badge", "badgeMuted"].forEach(function(k){ PREF[k] = PDEF[k]; });
+    savePrefs(); MUTES = []; localStorage.setItem("mutes", "[]");
+    renderRooms(); spRender();
+  }, "dng");
+}
+
+function pgData(box){
+  spTitle(L("datas"));
+  var a = secEl(box, L("automedia"));
+  prefToggle(a, "🖼", L("dlphoto"), null, "dlPhoto");
+  prefToggle(a, "🎬", L("dlvideo"), null, "dlVideo");
+  var b = secEl(box, null);
+  rowEl(b, "↺", L("resetset"), null, "", function(){
+    for(var k in PDEF) PREF[k] = PDEF[k];
+    savePrefs(); applyAppearance(); renderRooms(); spRender();
+  }, "dng");
+}
+
+function pgFolders(box){
+  spTitle(L("folders"));
+  var a = secEl(box, L("folders"));
+  rowEl(a, "☰", L("allchats"), null, "", null);
+  FOLDERS.forEach(function(f){
+    rowEl(a, "📁", f.name, (f.rooms || []).length + " chat", "", function(){ spPush(pgFolderEdit(f)); });
+  });
+  rowEl(a, "➕", L("newfolder"), null, "", function(){ spPush(pgFolderEdit({id: null, name: "", rooms: []})); }).querySelector(".sl").style.color = "var(--accent)";
+  noteEl(box, L("foldernote"));
+}
+
+function pgFolderEdit(f){
+  return function(box){
+    spTitle(f.name || L("newfolder"));
+    var sel = (f.rooms || []).slice();
+    var a = secEl(box, L("foldername"));
+    var w = mk("div", "sf");
+    var ni = document.createElement("input");
+    ni.maxLength = 24; ni.value = f.name; ni.placeholder = L("foldername");
+    w.appendChild(ni); a.appendChild(w);
+    var c = secEl(box, L("includedchats"));
+    chatItems().forEach(function(x){
+      var r = userRow(c, {avatar: x.avatar || x.title.charAt(0).toUpperCase(), name: x.title, display: x.title}, null);
+      var mark = mk("div", "sv", sel.indexOf(x.room) >= 0 ? "✓" : "");
+      r.appendChild(mark);
+      r.onclick = function(){
+        var i = sel.indexOf(x.room);
+        if(i >= 0) sel.splice(i, 1); else sel.push(x.room);
+        mark.textContent = i >= 0 ? "" : "✓";
+      };
+    });
+    var sb = mk("div", "sbtn");
+    var ok = mk("button", null, t("save"));
+    ok.onclick = function(){
+      var name = ni.value.trim();
+      if(!name) return;
+      if(!f.id){ f.id = "f" + Date.now(); FOLDERS.push(f); }
+      f.name = name; f.rooms = sel;
+      localStorage.setItem("folders", JSON.stringify(FOLDERS));
+      renderRooms(); spBack();
+    };
+    sb.appendChild(ok);
+    if(f.id){
+      var del = mk("button", "alt", L("delete"));
+      del.onclick = function(){
+        FOLDERS = FOLDERS.filter(function(x){ return x.id != f.id; });
+        if(CUR_FOLDER == f.id) CUR_FOLDER = "all";
+        localStorage.setItem("folders", JSON.stringify(FOLDERS));
+        renderRooms(); spBack();
+      };
+      sb.appendChild(del);
+    }
+    box.appendChild(sb);
+  };
+}
+
+function renderFolderTabs(){
+  var el = $("ftabs");
+  if(!el) return;
+  el.innerHTML = "";
+  if(!FOLDERS.length){ el.style.display = "none"; CUR_FOLDER = "all"; return; }
+  el.style.display = "flex";
+  var all = [{id: "all", name: L("allchats")}].concat(FOLDERS);
+  if(!all.some(function(f){ return f.id == CUR_FOLDER; })) CUR_FOLDER = "all";
+  all.forEach(function(f){
+    var b = mk("div", "ft" + (f.id == CUR_FOLDER ? " on" : ""), f.name);
+    b.onclick = function(){ CUR_FOLDER = f.id; renderRooms(); };
+    el.appendChild(b);
+  });
+}
+function folderFilter(items){
+  if(CUR_FOLDER == "all") return items;
+  var f = FOLDERS.filter(function(x){ return x.id == CUR_FOLDER; })[0];
+  if(!f) return items;
+  return items.filter(function(x){ return (f.rooms || []).indexOf(x.room) >= 0; });
+}
+
+function openNewMsg(){ spOpen(pgNewMsg); }
+function pgNewMsg(box){
+  spTitle(L("newmsg"));
+  var a = secEl(box, null);
+  rowEl(a, "👥", L("creategroup"), null, "", function(){ spClose(); newRoomDlg(); });
+  var sf = secEl(box, null);
+  var w = mk("div", "sf");
+  var inp = document.createElement("input");
+  inp.placeholder = t("search");
+  w.appendChild(inp); sf.appendChild(w);
+  var res = secEl(box, null);
+  var tmr = null;
+  inp.oninput = function(){
+    clearTimeout(tmr);
+    var q = inp.value.trim();
+    res.innerHTML = "";
+    if(!q) return;
+    tmr = setTimeout(function(){
+      fetch("/users?q=" + enc(q) + "&token=" + enc(tok)).then(function(r){ return r.json(); }).then(function(l){
+        res.innerHTML = "";
+        if(!Array.isArray(l)) return;
+        l.forEach(function(u){ userRow(res, u, function(){ spClose(); openDm(u); }); });
+      }).catch(function(){});
+    }, 300);
+  };
+  var rc = CHATS.dms.filter(function(d){ return d.name != me; });
+  if(rc.length){
+    var b = secEl(box, L("recentchats"));
+    rc.forEach(function(d){ userRow(b, d, function(){ spClose(); openRoom(dmRoom(d.name)); }); });
+  }
+}
+
+/* ---- notifications ---- */
+function beep(f){
+  try{
+    var C = window.AudioContext || window.webkitAudioContext;
+    if(!C) return;
+    var c = new C(), o = c.createOscillator(), g = c.createGain();
+    o.type = "sine"; o.frequency.value = f || 880; g.gain.value = .06;
+    o.connect(g); g.connect(c.destination); o.start();
+    setTimeout(function(){ try{ o.stop(); c.close(); }catch(e){} }, 130);
+  }catch(e){}
+}
+function showNote(title, body, room){
+  if(!PREF.nBrowser || !window.Notification || Notification.permission != "granted") return;
+  try{
+    var n = new Notification(title, {body: body, tag: room});
+    n.onclick = function(){ window.focus(); openRoom(room); n.close(); };
+  }catch(e){}
+}
+function checkNotify(quiet){
+  var items = chatItems(), total = 0, cur = {}, fire = null;
+  items.forEach(function(x){
+    var muted = MUTES.indexOf(x.room) >= 0;
+    cur[x.room] = x.unread;
+    if(x.unread > 0 && (!muted || PREF.badgeMuted)) total += x.unread;
+    if(!quiet && LAST_UN && !x.dm && x.unread > (LAST_UN[x.room] || 0) && !muted && PREF.nGroup) fire = x;
+  });
+  LAST_UN = cur;
+  document.title = (PREF.badge && total > 0 ? "(" + total + ") " : "") + t("title");
+  if(fire){
+    if(PREF.nSound) beep(880);
+    if(PREF.nVib && navigator.vibrate) navigator.vibrate(120);
+    if(document.hidden) showNote(fire.title, PREF.nPrev ? lastText(fire) : "", fire.room);
+  }
+}
+function onNotify(m){
+  loadChats();
+  if(m.room == curRoom && document.visibilityState == "visible") return;
+  if(MUTES.indexOf(m.room) >= 0 || !PREF.nPriv) return;
+  if(PREF.nSound) beep(880);
+  if(PREF.nVib && navigator.vibrate) navigator.vibrate(120);
+  showNote(m.display || m.name, PREF.nPrev ? snip(m.text) : "", m.room);
+}
+function connectUsock(){
+  if(!tok || usock) return;
+  var proto = location.protocol == "https:" ? "wss://" : "ws://";
+  var u = new WebSocket(proto + location.host + "/wsu/" + enc(tok));
+  var t0 = Date.now();
+  usock = u;
+  u.onopen = function(){ u.ok = true; t0 = Date.now(); };
+  u.onmessage = function(e){
+    var m; try{ m = JSON.parse(e.data); }catch(x){ return; }
+    if(m.type == "notify") onNotify(m);
+  };
+  u.onclose = function(){
+    if(usock !== u) return;
+    usock = null;
+    if(u.ok && Date.now() - t0 < 2000) return;
+    clearTimeout(usockT);
+    if(tok) usockT = setTimeout(connectUsock, 4000);
+  };
+}
+
 /* ---------- translation toggle ---------- */
 function updateTr(){
   var b = $("trbtn");
@@ -1433,7 +2167,7 @@ document.addEventListener("visibilitychange", function(){ if(document.visibility
 document.addEventListener("keydown", function(e){
   if(e.key == "Escape"){ closeMenu(); return; }
   if(e.key != "Enter") return;
-  if(document.activeElement == $("msg")) send();
+  if(document.activeElement == $("msg")){ if(PREF.enter) send(); }
   else if(document.activeElement == $("room")) addRoom();
 });
 

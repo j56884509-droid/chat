@@ -52,6 +52,7 @@ async def upload(req: Request, token: str = ""):
 rooms = {}
 games = {}
 lobbies = {}
+usocks = {}  # name -> [WebSocket]: har bir kirgan odamning umumiy kanali (bildirishnomalar uchun)
 
 
 async def _send(ws, data):
@@ -242,6 +243,10 @@ def translate(text: str, to: str = "ru"):
 
 # ---------- sahifa, kirish, profil ----------
 
+def _ua(req):
+    return (req.headers.get("user-agent") or "")[:200]
+
+
 @app.get("/")
 async def home():
     return HTMLResponse(open("index.html", encoding="utf-8").read())
@@ -254,7 +259,7 @@ async def do_register(req: Request):
     pw = d.get("password", "")
     if not (2 <= len(name) <= 20) or len(pw) < 4:
         return JSONResponse({"error": "Ism 2-20 harf, parol kamida 4 belgi bo'lsin"}, status_code=400)
-    token = None if name.lower() == "me" else db.register(name, pw)
+    token = None if name.lower() == "me" else db.register(name, pw, _ua(req))
     if not token:
         return JSONResponse({"error": "Bu ism band"}, status_code=400)
     return {"token": token, "name": name}
@@ -264,7 +269,7 @@ async def do_register(req: Request):
 async def do_login(req: Request):
     d = await req.json()
     name = d.get("name", "").strip()
-    token = db.login(name, d.get("password", ""))
+    token = db.login(name, d.get("password", ""), _ua(req))
     if not token:
         return JSONResponse({"error": "Ism yoki parol noto'g'ri"}, status_code=400)
     return {"token": token, "name": name}
@@ -278,15 +283,22 @@ async def get_profile(name: str, token: str = ""):
     p = db.get_profile(name)
     if not p:
         return JSONResponse({"error": "Topilmadi"}, status_code=404)
-    online = any(n == name for lst in rooms.values() for _, n in lst)
-    hidden = viewer != name and (bool(p["hide_seen"]) or (viewer is not None and db.is_blocked(name, viewer)))
-    out = {"name": name, "display": p["display"], "avatar": p["avatar"], "bio": p["bio"],
+    online = any(n == name for lst in rooms.values() for _, n in lst) or bool(usocks.get(name))
+    other = viewer != name
+    cut = other and viewer is not None and db.is_blocked(name, viewer)
+    hidden = other and (bool(p["hide_seen"]) or cut)
+    out = {"name": name, "display": p["display"], "color": p["color"],
+           "avatar": "🙂" if other and (p["hide_photo"] or cut) else p["avatar"],
+           "bio": "" if other and (p["hide_bio"] or cut) else p["bio"],
            "online": False if hidden else online,
            "last_seen": 0 if hidden else p["last_seen"], "hidden": hidden}
     if viewer:
         out["blocked"] = db.is_blocked(viewer, name)
         if viewer == name:
-            out["hide_seen"] = p["hide_seen"]
+            for k in ("hide_seen", "hide_photo", "hide_bio", "msg_priv", "sess_ttl"):
+                out[k] = p[k]
+            out["blocked_n"] = len(db.list_blocked(viewer))
+            out["sess_n"] = len(db.list_sessions(viewer))
     return out
 
 
@@ -306,7 +318,45 @@ async def save_profile(req: Request):
         display = None
     hide = d.get("hide_seen")
     hide = bool(hide) if hide is not None else None
-    db.set_profile(name, avatar, str(d.get("bio", "")), display, hide)
+    color = d.get("color")
+    if isinstance(color, str):
+        color = color if re.fullmatch(r"#[0-9a-fA-F]{6}", color) else ""
+    else:
+        color = None
+    db.set_profile(name, avatar, str(d.get("bio", "")), display, hide, color)
+    return {"ok": True}
+
+
+@app.post("/settings")
+async def save_settings(req: Request):
+    d = await req.json()
+    me = db.name_by_token(d.get("token", ""))
+    if not me:
+        return JSONResponse({"error": "Kirish kerak"}, status_code=401)
+    db.set_privacy(me, d)
+    return {"ok": True}
+
+
+@app.get("/sessions")
+def sessions(token: str = ""):
+    me = db.name_by_token(token)
+    if not me:
+        return JSONResponse({"error": "Kirish kerak"}, status_code=401)
+    return [{"id": x["id"], "ua": x["ua"], "created": x["created"], "last_active": x["last_active"],
+             "current": x["token"] == token} for x in db.list_sessions(me)]
+
+
+@app.post("/sessions/end")
+async def end_sessions(req: Request):
+    d = await req.json()
+    tok = d.get("token", "")
+    me = db.name_by_token(tok)
+    if not me:
+        return JSONResponse({"error": "Kirish kerak"}, status_code=401)
+    if d.get("all_others"):
+        db.end_other_sessions(me, tok)
+    elif isinstance(d.get("id"), int):
+        db.end_session(me, d["id"], tok)
     return {"ok": True}
 
 
@@ -346,9 +396,9 @@ def find_users(q: str = "", token: str = ""):
     if not me or not q:
         return []
     rows = db.conn.execute(
-        "SELECT name, avatar, display FROM users WHERE (name LIKE ? OR display LIKE ?) AND name != ? LIMIT 20",
+        "SELECT name, avatar, display, hide_photo FROM users WHERE (name LIKE ? OR display LIKE ?) AND name != ? LIMIT 20",
         ("%" + q + "%", "%" + q + "%", me)).fetchall()
-    return [{"name": r[0], "avatar": r[1], "display": r[2] or r[0]} for r in rows]
+    return [{"name": r[0], "avatar": "🙂" if r[3] else r[1], "display": r[2] or r[0]} for r in rows]
 
 
 @app.get("/chats")
@@ -368,7 +418,8 @@ def chats(token: str = "", rooms: str = ""):
             other = pair[1] if pair[0] == me else pair[0]
             p = db.get_profile(other)
             if p:
-                dms.append({"name": other, "display": p["display"], "avatar": p["avatar"], "last": db.room_last(room),
+                dms.append({"name": other, "display": p["display"],
+                            "avatar": "🙂" if other != me and p["hide_photo"] else p["avatar"], "last": db.room_last(room),
                             "unread": db.unread(room, me)})
     groups = {}
     for r in wanted:
@@ -379,6 +430,29 @@ def chats(token: str = "", rooms: str = ""):
 
 
 # ---------- WebSocket ----------
+
+@app.websocket("/wsu/{token}")
+async def user_ws(ws: WebSocket, token: str):
+    name = db.name_by_token(token)
+    await ws.accept()
+    if not name:
+        await ws.close()
+        return
+    usocks.setdefault(name, []).append(ws)
+    try:
+        while True:
+            await ws.receive_text()
+    except Exception:
+        pass
+    finally:
+        try:
+            usocks[name].remove(ws)
+        except (KeyError, ValueError):
+            pass
+        if not usocks.get(name):
+            usocks.pop(name, None)
+            db.touch_seen(name)
+
 
 @app.websocket("/ws/{room}/{token}")
 async def chat(ws: WebSocket, room: str, token: str):
@@ -424,14 +498,23 @@ async def chat(ws: WebSocket, room: str, token: str):
                         rt = None
                     if is_dm:
                         other = pair[1] if pair[0] == name else pair[0]
-                        if other != name and (db.is_blocked(other, name) or db.is_blocked(name, other)):
-                            await tell(room, name, "Xabar yuborib bo'lmadi")
-                            continue
+                        if other != name:
+                            op = db.get_profile(other)
+                            if (db.is_blocked(other, name) or db.is_blocked(name, other)
+                                    or (op and op["msg_priv"] == 1 and not db.prior_chat(room, other))):
+                                await tell(room, name, "Xabar yuborib bo'lmadi")
+                                continue
                     mid, now = db.save_message(room, name, text, rt)
                     prof = db.get_profile(name)
                     await broadcast(room, {"type": "msg", "id": mid, "name": name, "display": prof["display"],
-                                           "text": text, "avatar": prof["avatar"], "time": now,
+                                           "color": prof["color"], "text": text,
+                                           "avatar": "🙂" if prof["hide_photo"] else prof["avatar"], "time": now,
                                            "edited": 0, "deleted": 0, "reply": db.reply_info(rt)})
+                    if is_dm and other != name:
+                        for w in list(usocks.get(other, [])):
+                            await _send(w, {"type": "notify", "room": room, "id": mid, "name": name,
+                                            "display": prof["display"], "text": text, "time": now,
+                                            "avatar": "🙂" if prof["hide_photo"] else prof["avatar"]})
                 elif kind == "edit":
                     mid = data.get("id")
                     text = str(data.get("text", "")).strip()[:1000]

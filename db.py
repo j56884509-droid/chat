@@ -22,6 +22,14 @@ def _add_column(table, col, decl):
 _add_column("users", "display", "TEXT")
 _add_column("users", "last_seen", "INTEGER DEFAULT 0")
 _add_column("users", "hide_seen", "INTEGER DEFAULT 0")
+_add_column("users", "hide_photo", "INTEGER DEFAULT 0")
+_add_column("users", "hide_bio", "INTEGER DEFAULT 0")
+_add_column("users", "msg_priv", "INTEGER DEFAULT 0")
+_add_column("users", "sess_ttl", "INTEGER DEFAULT 6")
+_add_column("users", "color", "TEXT")
+_add_column("sessions", "created", "INTEGER DEFAULT 0")
+_add_column("sessions", "last_active", "INTEGER DEFAULT 0")
+_add_column("sessions", "ua", "TEXT")
 _add_column("messages", "created", "INTEGER DEFAULT 0")
 _add_column("messages", "reply_to", "INTEGER")
 _add_column("messages", "edited", "INTEGER DEFAULT 0")
@@ -34,44 +42,94 @@ def make_hash(password, salt):
     return hashlib.pbkdf2_hmac("sha256", password.encode(), salt.encode(), 100000).hex()
 
 
-def new_token(name):
+def new_token(name, ua=""):
     token = secrets.token_hex(16)
-    conn.execute("INSERT INTO sessions VALUES (?, ?)", (token, name))
+    now = int(time.time() * 1000)
+    conn.execute("INSERT INTO sessions (token, name, created, last_active, ua) VALUES (?, ?, ?, ?, ?)",
+                 (token, name, now, now, ua[:200]))
     conn.commit()
     return token
 
 
-def register(name, password):
+def register(name, password, ua=""):
     if conn.execute("SELECT 1 FROM users WHERE name=?", (name,)).fetchone():
         return None
     salt = secrets.token_hex(8)
     conn.execute("INSERT INTO users (name, salt, hash, avatar, bio, display) VALUES (?, ?, ?, ?, ?, ?)",
                  (name, salt, make_hash(password, salt), "🙂", "", name))
     conn.commit()
-    return new_token(name)
+    return new_token(name, ua)
 
 
-def login(name, password):
+def login(name, password, ua=""):
     row = conn.execute("SELECT salt, hash FROM users WHERE name=?", (name,)).fetchone()
     if not row:
         return None
     if not secrets.compare_digest(make_hash(password, row[0]), row[1]):
         return None
-    return new_token(name)
+    return new_token(name, ua)
 
 
 def name_by_token(token):
-    row = conn.execute("SELECT name FROM sessions WHERE token=?", (token,)).fetchone()
-    return row[0] if row else None
+    row = conn.execute(
+        "SELECT s.name, s.last_active, u.sess_ttl FROM sessions s LEFT JOIN users u ON u.name=s.name WHERE s.token=?",
+        (token,)).fetchone()
+    if not row:
+        return None
+    now = int(time.time() * 1000)
+    ttl = (row[2] or 6) * 30 * 86400000
+    if row[1] and now - row[1] > ttl:
+        # faol bo'lmagan seans avtomatik tugatiladi
+        conn.execute("DELETE FROM sessions WHERE token=?", (token,))
+        conn.commit()
+        return None
+    if not row[1] or now - row[1] > 60000:
+        conn.execute("UPDATE sessions SET last_active=? WHERE token=?", (now, token))
+        conn.commit()
+    return row[0]
+
+
+def list_sessions(name):
+    rows = conn.execute(
+        "SELECT rowid, token, ua, created, last_active FROM sessions WHERE name=? ORDER BY last_active DESC",
+        (name,)).fetchall()
+    return [{"id": r[0], "token": r[1], "ua": r[2] or "", "created": r[3] or 0, "last_active": r[4] or 0} for r in rows]
+
+
+def end_session(name, sid, keep_token):
+    cur = conn.execute("DELETE FROM sessions WHERE rowid=? AND name=? AND token!=?", (sid, name, keep_token))
+    conn.commit()
+    return cur.rowcount > 0
+
+
+def end_other_sessions(name, keep_token):
+    conn.execute("DELETE FROM sessions WHERE name=? AND token!=?", (name, keep_token))
+    conn.commit()
+
+
+def set_privacy(name, d):
+    allowed = {"hide_seen": (0, 1), "hide_photo": (0, 1), "hide_bio": (0, 1), "msg_priv": (0, 1), "sess_ttl": (1, 3, 6, 12)}
+    for k, vals in allowed.items():
+        if k in d:
+            v = int(d[k]) if isinstance(d[k], (int, bool)) else None
+            if v in vals:
+                conn.execute("UPDATE users SET " + k + "=? WHERE name=?", (v, name))
+    conn.commit()
+
+
+def prior_chat(room, name):
+    return conn.execute("SELECT 1 FROM messages WHERE room=? AND name=? LIMIT 1", (room, name)).fetchone() is not None
 
 
 def get_profile(name):
     row = conn.execute(
-        "SELECT avatar, bio, display, last_seen, hide_seen FROM users WHERE name=?", (name,)).fetchone()
+        "SELECT avatar, bio, display, last_seen, hide_seen, hide_photo, hide_bio, msg_priv, sess_ttl, color "
+        "FROM users WHERE name=?", (name,)).fetchone()
     if not row:
         return None
     return {"name": name, "avatar": row[0], "bio": row[1], "display": row[2] or name,
-            "last_seen": row[3] or 0, "hide_seen": row[4] or 0}
+            "last_seen": row[3] or 0, "hide_seen": row[4] or 0, "hide_photo": row[5] or 0,
+            "hide_bio": row[6] or 0, "msg_priv": row[7] or 0, "sess_ttl": row[8] or 6, "color": row[9] or ""}
 
 
 def display_of(name):
@@ -79,8 +137,10 @@ def display_of(name):
     return r[0] if r and r[0] else name
 
 
-def set_profile(name, avatar, bio, display=None, hide_seen=None):
+def set_profile(name, avatar, bio, display=None, hide_seen=None, color=None):
     conn.execute("UPDATE users SET avatar=?, bio=? WHERE name=?", (avatar, bio[:200], name))
+    if color is not None:
+        conn.execute("UPDATE users SET color=? WHERE name=?", (color, name))
     if display is not None:
         conn.execute("UPDATE users SET display=? WHERE name=?", (display, name))
     if hide_seen is not None:
@@ -173,15 +233,16 @@ def delete_message(mid, room, name):
 
 
 def _pack(r):
-    # r: id, name, text, avatar, created, edited, deleted, reply_to, display
-    return {"type": "msg", "id": r[0], "name": r[1], "display": r[8] or r[1], "text": "" if r[6] else (r[2] or ""),
-            "avatar": r[3] or "🙂", "time": r[4] or 0, "edited": r[5] or 0,
+    # r: id, name, text, avatar, created, edited, deleted, reply_to, display, color, hide_photo
+    return {"type": "msg", "id": r[0], "name": r[1], "display": r[8] or r[1], "color": r[9] or "",
+            "text": "" if r[6] else (r[2] or ""),
+            "avatar": "🙂" if r[10] else (r[3] or "🙂"), "time": r[4] or 0, "edited": r[5] or 0,
             "deleted": r[6] or 0, "reply": reply_info(r[7])}
 
 
 def last_messages(room, limit=80):
     rows = conn.execute(
-        "SELECT m.id, m.name, m.text, u.avatar, m.created, m.edited, m.deleted, m.reply_to, u.display "
+        "SELECT m.id, m.name, m.text, u.avatar, m.created, m.edited, m.deleted, m.reply_to, u.display, u.color, u.hide_photo "
         "FROM messages m LEFT JOIN users u ON u.name=m.name "
         "WHERE m.room=? ORDER BY m.id DESC LIMIT ?", (room, limit)).fetchall()
     return [_pack(r) for r in reversed(rows)]
