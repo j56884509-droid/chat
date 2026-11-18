@@ -214,6 +214,20 @@ audio.media{width:240px;height:40px;cursor:default;background:none}
 .l3 .rlast{white-space:normal;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
 .b{font-size:var(--fs,16px);border-radius:var(--rad,12px) var(--rad,12px) var(--rad,12px) 3px}
 .me{border-radius:var(--rad,12px) var(--rad,12px) 3px var(--rad,12px)}
+
+/* ===== B-paket ===== */
+#pinbar{display:none;align-items:center;gap:8px;padding:6px 12px;background:var(--panel);border-top:1px solid var(--border);cursor:pointer}
+#pintxt{flex:1;min-width:0;border-left:3px solid var(--accent);padding-left:8px;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.rxs{display:none;flex-wrap:wrap;gap:4px;clear:both;padding-top:4px}
+.rc{background:rgba(127,127,127,.22);border-radius:12px;padding:2px 8px;font-size:13px;cursor:pointer;user-select:none}
+.rc.on{background:var(--accent);color:#fff}
+.fwd{font-size:13px;color:var(--link);margin-bottom:3px}
+.mrow{display:flex;flex-wrap:wrap;gap:2px;padding:4px}
+#menu .mrow button{padding:4px 6px;font-size:21px;min-width:0;background:none}
+a.doc{display:flex;align-items:center;gap:10px;padding:4px 2px;color:inherit;text-decoration:none;min-width:190px}
+a.doc .di{font-size:32px}
+a.doc .dn{font-weight:600;overflow-wrap:anywhere}
+a.doc .ds{font-size:12px;color:var(--sub)}
 </style></head><body>
 
 <div id="login" class="screen">
@@ -251,6 +265,7 @@ audio.media{width:240px;height:40px;cursor:default;background:none}
 <button class="ic" onclick="openMore(event)">⋮</button>
 </div>
 <div id="sbar"><input id="sq" data-ph="schat" oninput="filterLog()"></div>
+<div id="pinbar" onclick="pinClick()"><div id="pintxt"></div><button class="ic" onclick="unpinClick(event)" style="font-size:16px!important;padding:2px 8px!important">✕</button></div>
 <div id="lobby">
 <div data-i18n="ltitle"></div>
 <div id="lplayers"></div>
@@ -279,7 +294,7 @@ audio.media{width:240px;height:40px;cursor:default;background:none}
 <button onclick="toggleEmo()">😊</button>
 <input id="msg" data-ph="msg" oninput="onType()" autocomplete="off">
 <button onclick="$('file').click()">📎</button>
-<input type="file" id="file" accept="image/*,video/*" style="display:none" onchange="upload(this)">
+<input type="file" id="file" accept="image/*,video/*,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv,.zip" style="display:none" onchange="upload(this)">
 </div>
 <button id="rcancel" onclick="stopRec(false)">✕</button>
 <button id="bmain" onclick="mainAction()">🎤</button>
@@ -341,6 +356,9 @@ var RANKS_RU = ["6","7","8","9","10","В","Д","К","Т"];
 var AVS = ["🙂","😎","🤠","🥷","🦊","🐯","🐼","🦁","👽","🤖","🔥","⭐"];
 var EMOJIS = ["😀","😂","🤣","😊","😍","😘","😎","🤔","😢","😭","😡","👍","👎","🙏","👏","🔥","❤️","💔","🎉","🤝","😉","🙄","😴","🤗","😅","🥳","😱","💪","👌","✌️","🙌","😇","🤩","😏","🥺","😋","🤪","💯","🌹","🎁"];
 var MEDIA = /^\[(img|vid|aud)\](\/uploads\/[\w.\-]+)$/;
+var DOC = /^\[doc\](\/uploads\/[\w.\-]+)\|([^|]{1,120})\|(\d{1,10})$/;
+var REACTS = ["👍", "❤️", "😂", "😮", "😢", "🙏", "🔥", "👎"];
+var PINMSG = null;
 var chosen = "🙂", LASTDAY = "";
 var TR = localStorage.getItem("tr") != "0";
 
@@ -434,6 +452,9 @@ var SRV = {
 };
 
 var PAT = [
+  [/^(.+) guruhga qo'shildi$/, {ru: "$1 присоединился(ась) к группе", en: "$1 joined the group"}],
+  [/^(.+) guruhni tark etdi$/, {ru: "$1 покинул(а) группу", en: "$1 left the group"}],
+  [/^(.+) guruhdan chiqarildi$/, {ru: "$1 удалён(а) из группы", en: "$1 was removed from the group"}],
   [/^(.+) qo'shildi$/, {ru: "$1 в чате", en: "$1 joined"}],
   [/^(.+) chiqib ketdi$/, {ru: "$1 вышел", en: "$1 left"}],
   [/^Durak boshlandi: (.+)$/, {ru: "Дурак начался: $1", en: "Durak started: $1"}],
@@ -526,6 +547,7 @@ function showApp(){
   loadChats();
   autoNight();
   connectUsock();
+  tryJoin();
   clearInterval(pollT);
   pollT = setInterval(poll, 4000);
 }
@@ -551,11 +573,12 @@ function saveRooms(){ localStorage.setItem("rooms", JSON.stringify(ROOMS)); }
 
 function addRoom(){
   var r = $("room").value.trim();
-  if(!r || r.toLowerCase().indexOf("dm:") == 0) return;
+  if(!r) return;
   $("room").value = "";
   $("nrm").style.display = "none";
-  if(ROOMS.indexOf(r) < 0){ ROOMS.unshift(r); saveRooms(); }
-  openRoom(r);
+  post("/group", {title: r}).then(function(d){
+    if(d && d.room) loadChats(function(){ openRoom(d.room); });
+  }).catch(function(){});
 }
 
 function removeRoom(r){
@@ -578,7 +601,7 @@ function loadMe(){
   }).catch(function(){});
 }
 
-function loadChats(){
+function loadChats(cb){
   if(!tok) return;
   fetch("/chats?token=" + enc(tok) + "&rooms=" + enc(JSON.stringify(ROOMS)))
     .then(function(r){ return r.json(); }).then(function(d){
@@ -587,6 +610,7 @@ function loadChats(){
       NEWDM = NEWDM.filter(function(u){ return !d.dms.some(function(x){ return x.name == u.name; }); });
       checkNotify();
       renderRooms();
+      if(cb) cb();
     }).catch(function(){});
 }
 
@@ -630,6 +654,8 @@ function snip(text){
   text = text || "";
   var m = MEDIA.exec(text);
   if(m) return t(m[1] == "img" ? "sphoto" : m[1] == "vid" ? "svideo" : "svoice");
+  var dd = DOC.exec(text);
+  if(dd) return "📄 " + dd[2];
   return text.slice(0, 80);
 }
 
@@ -659,6 +685,9 @@ function chatItems(){
     if(!seen[u.name]) items.push({room: dmRoom(u.name), title: dn(u), avatar: u.avatar, dm: true, last: null, unread: 0});
   });
   if(!seen[me]) items.push({room: dmRoom(me), title: t("saved"), avatar: "🔖", dm: true, last: null, unread: 0});
+  (CHATS.groups || []).forEach(function(g){
+    items.push({room: g.room, title: g.title, avatar: g.avatar, dm: false, grp: true, gid: g.gid, role: g.role, n: g.n, last: g.last, unread: g.unread});
+  });
   ROOMS.forEach(function(r){
     var i = CHATS.rooms[r] || {};
     items.push({room: r, title: r, dm: false, last: i.last || null, unread: i.unread || 0});
@@ -690,7 +719,7 @@ function renderRooms(){
     d.className = "ri" + (x.room == curRoom ? " act" : "");
     var a = document.createElement("div");
     a.className = "ra";
-    if(x.dm) setAv(a, x.avatar, 50); else a.textContent = x.title.charAt(0).toUpperCase();
+    if(x.dm || x.grp) setAv(a, x.avatar, 50); else a.textContent = x.title.charAt(0).toUpperCase();
     var mid = document.createElement("div"); mid.className = "rmid";
     var l1 = document.createElement("div"); l1.className = "rl1";
     var n = document.createElement("span"); n.className = "rn"; n.textContent = x.title;
@@ -699,7 +728,7 @@ function renderRooms(){
     if(pinned){ var pi = document.createElement("span"); pi.className = "rtm"; pi.textContent = "📌"; l1.appendChild(pi); }
     var tm = document.createElement("span"); tm.className = "rtm"; tm.textContent = fmtTime(x.last && x.last.time);
     l1.appendChild(tm);
-    if(!x.dm){
+    if(!x.dm && !x.grp){
       var rx = document.createElement("button");
       rx.className = "rx"; rx.textContent = "✕";
       rx.onclick = function(ev){ ev.stopPropagation(); removeRoom(x.room); };
@@ -744,6 +773,12 @@ function updateHeaderBtns(){
     var u = CHATS.dms.concat(NEWDM).filter(function(x){ return x.name == o; })[0];
     setAv(a, o == me ? "🔖" : (u ? u.avatar : "🙂"), 42);
     $("rtitle").textContent = dmTitle(curRoom);
+  } else if(groupOf(curRoom)){
+    var g = groupOf(curRoom);
+    setAv(a, g.avatar, 42);
+    $("rtitle").textContent = g.title;
+    subBase = g.n + " " + L("members");
+    updateSub();
   } else a.textContent = curRoom.charAt(0).toUpperCase();
 }
 
@@ -787,6 +822,7 @@ function openMore(ev){
     ["🔕 " + (MUTES.indexOf(curRoom) >= 0 ? t("unmute") : t("mute")), toggleMute]
   ];
   if(isDm() && dmOther(curRoom) != me) items.push(["👤 " + dmTitle(curRoom), titleClick]);
+  if(groupOf(curRoom)) items.push(["ℹ️ " + L("ginfo"), openGroupInfo]);
   items.push(["🃏 " + t("games"), function(){ act("join"); }]);
   popup(items, ev);
 }
@@ -804,6 +840,7 @@ function dropWs(){
 
 function titleClick(){
   if(isDm() && dmOther(curRoom) != me) openProfile(dmOther(curRoom));
+  else if(groupOf(curRoom)) openGroupInfo();
 }
 
 function updateSub(){
@@ -834,13 +871,14 @@ function openRoom(room){
   lastGame = null;
   MSGS = {}; OTHER_READ = 0; LASTID = 0; SENT_READ = 0; LASTDAY = ""; LIVE = false;
   typingName = ""; subBase = "";
+  setPin(null);
   cancelReply();
   closeSearch();
   $("emo").style.display = "none";
   $("log").innerHTML = "";
   $("game").style.display = "none";
   $("lobby").style.display = "none";
-  $("rtitle").textContent = isDm() ? dmTitle(room) : "# " + room;
+  $("rtitle").textContent = isDm() ? dmTitle(room) : (groupOf(room) ? groupOf(room).title : "# " + room);
   updateSub();
   $("empty").style.display = "none";
   $("chat").style.display = "flex";
@@ -900,6 +938,11 @@ function onmsg(e){
     var r2 = MSGS[m.id];
     if(r2){ r2.m.deleted = 1; r2.m.text = ""; buildBody(r2); }
   }
+  else if(m.type == "react"){
+    var r3 = MSGS[m.id];
+    if(r3){ r3.m.reactions = m.reactions; renderReactions(r3); }
+  }
+  else if(m.type == "pin") setPin(m.msg);
   else {
     addMsg(m);
     if(m.type == "msg"){
@@ -1015,6 +1058,20 @@ function buildBody(rec){
     flags(rec); tickOne(rec);
     return;
   }
+  var dd = DOC.exec(m.text);
+  if(dd){
+    var a = document.createElement("a");
+    a.className = "doc"; a.href = dd[1]; a.download = dd[2]; a.target = "_blank";
+    a.onclick = function(ev){ ev.stopPropagation(); };
+    a.appendChild(mk("div", "di", "📄"));
+    var ax = document.createElement("div");
+    ax.appendChild(mk("div", "dn", dd[2]));
+    ax.appendChild(mk("div", "ds", fmtSize(parseInt(dd[3], 10))));
+    a.appendChild(ax);
+    body.appendChild(a);
+    flags(rec); tickOne(rec);
+    return;
+  }
   var tx = document.createElement("div");
   tx.className = "tx";
   body.appendChild(tx);
@@ -1060,6 +1117,9 @@ function addMsg(m, raw){
     n.onclick = function(){ openProfile(m.name); };
     b.appendChild(n);
   }
+  if(m.fwd){
+    b.appendChild(mk("div", "fwd", "↪ " + L("fwdfrom") + " " + (m.fwd.display || m.fwd.name)));
+  }
   if(m.reply){
     var q = document.createElement("div");
     q.className = "quote";
@@ -1089,10 +1149,13 @@ function addMsg(m, raw){
   rec.tk = document.createElement("span"); rec.tk.className = "tk";
   tm.appendChild(rec.fl); tm.appendChild(mn); tm.appendChild(hm); tm.appendChild(rec.tk);
   b.appendChild(tm);
+  rec.rx = mk("div", "rxs");
+  b.appendChild(rec.rx);
   b.oncontextmenu = function(ev){ ev.preventDefault(); openMenu(rec, ev); };
   row.appendChild(b);
   log.appendChild(row);
   buildBody(rec);
+  renderReactions(rec);
   if(stick || mine) scrollDown();
 }
 
@@ -1111,22 +1174,37 @@ function openMenu(rec, ev){
   ev.stopPropagation();
   if(rec.m.deleted || !rec.m.id) return;
   var mn = $("menu"); mn.innerHTML = "";
+  var rr = document.createElement("div"); rr.className = "mrow";
+  REACTS.forEach(function(e){
+    var eb = document.createElement("button");
+    eb.textContent = e;
+    eb.onclick = function(evt){ evt.stopPropagation(); closeMenu(); reactTo(rec, e); };
+    rr.appendChild(eb);
+  });
+  mn.appendChild(rr);
   function item(label, fn){
     var bt = document.createElement("button");
     bt.textContent = label;
     bt.onclick = function(e){ e.stopPropagation(); closeMenu(); fn(); };
     mn.appendChild(bt);
   }
-  var isMedia = MEDIA.test(rec.m.text);
+  var isMedia = MEDIA.test(rec.m.text) || DOC.test(rec.m.text);
   item("↩ " + t("reply"), function(){ startReply(rec); });
+  item("↪ " + L("fwd"), function(){ spOpen(pgForward(rec.m.id)); });
+  if(canPinHere()){
+    var pinned = PINMSG && PINMSG.id == rec.m.id;
+    item("📌 " + (pinned ? L("unpinmsg") : L("pinmsg")), function(){
+      if(ws) ws.send(JSON.stringify({type: "pin", id: rec.m.id, on: !pinned}));
+    });
+  }
   if(!isMedia) item("📋 " + t("copy"), function(){ copyText(rec.m.text); });
   if(rec.mine && !isMedia) item("✏️ " + t("edit"), function(){ startEdit(rec); });
-  if(rec.mine) item("🗑 " + t("del"), function(){ if(ws) ws.send(JSON.stringify({type: "del", id: rec.m.id})); });
+  if(rec.mine || isAdminHere()) item("🗑 " + t("del"), function(){ if(ws) ws.send(JSON.stringify({type: "del", id: rec.m.id})); });
   if(!rec.mine) item("🚩 " + t("report"), function(){ reportMsg(rec.m.id); });
   mn.style.display = "flex";
   var x = ev.clientX || 20, y = ev.clientY || 20;
   mn.style.left = Math.max(8, Math.min(x, window.innerWidth - 180)) + "px";
-  mn.style.top = Math.max(8, Math.min(y, window.innerHeight - 200)) + "px";
+  mn.style.top = Math.max(8, Math.min(y, window.innerHeight - 70 - (mn.children.length - 1) * 44)) + "px";
 }
 
 function startReply(rec){
@@ -1280,13 +1358,15 @@ function sendFile(f){
   if(!f || !w) return;
   if(f.size > 25 * 1024 * 1024){ addMsg({type: "system", text: t("big")}, true); return; }
   var nt = note(t("sending"));
-  fetch("/upload?token=" + enc(tok), {
-    method: "POST", headers: {"Content-Type": f.type}, body: f
+  fetch("/upload?token=" + enc(tok) + "&fname=" + enc(f.name || ""), {
+    method: "POST", headers: {"Content-Type": fileType(f)}, body: f
   }).then(function(r){ return r.json(); }).then(function(d){
     nt.remove();
     if(d.error){ addMsg({type: "system", text: t("upfail")}, true); return; }
-    var tag = d.kind == "img" ? "[img]" : d.kind == "vid" ? "[vid]" : "[aud]";
-    if(ws === w) w.send(JSON.stringify({type: "msg", text: tag + d.url}));
+    var txt;
+    if(d.kind == "doc") txt = "[doc]" + d.url + "|" + d.name + "|" + (d.size || f.size || 0);
+    else txt = (d.kind == "img" ? "[img]" : d.kind == "vid" ? "[vid]" : "[aud]") + d.url;
+    if(ws === w) w.send(JSON.stringify({type: "msg", text: txt}));
   }).catch(function(){ nt.remove(); addMsg({type: "system", text: t("upfail")}, true); });
 }
 
@@ -2111,7 +2191,7 @@ function checkNotify(quiet){
     var muted = MUTES.indexOf(x.room) >= 0;
     cur[x.room] = x.unread;
     if(x.unread > 0 && (!muted || PREF.badgeMuted)) total += x.unread;
-    if(!quiet && LAST_UN && !x.dm && x.unread > (LAST_UN[x.room] || 0) && !muted && PREF.nGroup) fire = x;
+    if(!quiet && LAST_UN && !x.dm && x.room.indexOf("g:") != 0 && x.unread > (LAST_UN[x.room] || 0) && !muted && PREF.nGroup) fire = x;
   });
   LAST_UN = cur;
   document.title = (PREF.badge && total > 0 ? "(" + total + ") " : "") + t("title");
@@ -2124,10 +2204,12 @@ function checkNotify(quiet){
 function onNotify(m){
   loadChats();
   if(m.room == curRoom && document.visibilityState == "visible") return;
-  if(MUTES.indexOf(m.room) >= 0 || !PREF.nPriv) return;
+  var grp = m.room.indexOf("g:") == 0;
+  if(MUTES.indexOf(m.room) >= 0 || !(grp ? PREF.nGroup : PREF.nPriv)) return;
   if(PREF.nSound) beep(880);
   if(PREF.nVib && navigator.vibrate) navigator.vibrate(120);
-  showNote(m.display || m.name, PREF.nPrev ? snip(m.text) : "", m.room);
+  var who = m.display || m.name;
+  showNote(grp ? (m.title || who) : who, (grp ? who + ": " : "") + (PREF.nPrev ? snip(m.text) : ""), m.room);
 }
 function connectUsock(){
   if(!tok || usock) return;
@@ -2139,6 +2221,7 @@ function connectUsock(){
   u.onmessage = function(e){
     var m; try{ m = JSON.parse(e.data); }catch(x){ return; }
     if(m.type == "notify") onNotify(m);
+    else if(m.type == "chats") loadChats();
   };
   u.onclose = function(){
     if(usock !== u) return;
@@ -2147,6 +2230,274 @@ function connectUsock(){
     clearTimeout(usockT);
     if(tok) usockT = setTimeout(connectUsock, 4000);
   };
+}
+
+/* ---------- B-paket: reaksiya, qadash, yo'naltirish, guruhlar, hujjatlar ---------- */
+Object.assign(S, {
+  fwd:["Yo'naltirish","Переслать","Forward"], fwdfrom:["Yo'naltirilgan:","Переслано от","Forwarded from"],
+  fwdto:["Yo'naltirish","Переслать","Forward to"], send:["Yuborish","Отправить","Send"],
+  fwdsent:["Yo'naltirildi","Переслано","Forwarded"], pinmsg:["Qadash","Закрепить","Pin"],
+  unpinmsg:["Qadashni olib tashlash","Открепить","Unpin"], ginfo:["Guruh haqida","О группе","Group info"],
+  members:["a'zo","участн.","members"], membersh:["A'zolar","Участники","Members"],
+  addmember:["A'zo qo'shish","Добавить участника","Add member"], invite:["Taklif havolasi","Ссылка-приглашение","Invite link"],
+  invreset:["Havolani yangilash","Обновить ссылку","Reset link"], gedit:["Guruhni tahrirlash","Изменить группу","Edit group"],
+  gname:["Guruh nomi","Название группы","Group name"], leave:["Guruhni tark etish","Покинуть группу","Leave group"],
+  owner:["Egasi","Владелец","Owner"], admin:["Admin","Админ","Admin"],
+  mkadmin:["Admin qilish","Сделать админом","Make admin"], rmadmin:["Adminlikni olib tashlash","Снять админа","Remove admin"],
+  kick:["Guruhdan chiqarish","Удалить из группы","Remove from group"], writeto:["Yozish","Написать","Message"],
+  invbad:["Havola yaroqsiz","Ссылка недействительна","Invalid link"], added:["Qo'shildi","Добавлен","Added"],
+  nopinperm:["Qadash uchun ruxsat yo'q","Нет прав закреплять","No permission to pin"]
+});
+S.creategroup = ["Guruh yaratish","Создать группу","Create group"];
+Object.assign(T.uz, {newroom:"Yangi guruh", room:"Guruh nomi"});
+Object.assign(T.ru, {newroom:"Новая группа", room:"Название группы"});
+Object.assign(T.en, {newroom:"New group", room:"Group name"});
+
+function post(path, obj){
+  return fetch(path, {method: "POST", headers: {"Content-Type": "application/json"},
+    body: JSON.stringify(Object.assign({token: tok}, obj))}).then(function(r){ return r.json().catch(function(){ return {}; }); });
+}
+function fmtSize(n){
+  if(!n) return "";
+  if(n < 1024) return n + " B";
+  if(n < 1048576) return Math.round(n / 1024) + " KB";
+  return (n / 1048576).toFixed(1) + " MB";
+}
+var EXT_TYPES = {pdf:"application/pdf", txt:"text/plain", csv:"text/csv", zip:"application/zip", doc:"application/msword",
+  docx:"application/vnd.openxmlformats-officedocument.wordprocessingml.document", xls:"application/vnd.ms-excel",
+  xlsx:"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", ppt:"application/vnd.ms-powerpoint",
+  pptx:"application/vnd.openxmlformats-officedocument.presentationml.presentation"};
+function fileType(f){
+  if(f.type) return f.type;
+  var m = /\.([a-z0-9]+)$/i.exec(f.name || "");
+  return (m && EXT_TYPES[m[1].toLowerCase()]) || "application/octet-stream";
+}
+
+function groupOf(room){
+  return (CHATS.groups || []).filter(function(g){ return g.room == room; })[0];
+}
+function myRole(){ var g = groupOf(curRoom); return g ? g.role : ""; }
+function isAdminHere(){ return !!curRoom && curRoom.indexOf("g:") == 0 && (myRole() == "owner" || myRole() == "admin"); }
+function canPinHere(){
+  if(!curRoom) return false;
+  if(curRoom.indexOf("g:") == 0) return isAdminHere();
+  return true;
+}
+
+/* reaksiyalar */
+function reactTo(rec, emoji){
+  if(ws && rec.m.id) ws.send(JSON.stringify({type: "react", id: rec.m.id, emoji: emoji}));
+}
+function renderReactions(rec){
+  var box = rec.rx;
+  if(!box) return;
+  box.innerHTML = "";
+  var r = rec.m.reactions || {};
+  Object.keys(r).forEach(function(e){
+    var names = r[e];
+    if(!names || !names.length) return;
+    var c = mk("span", "rc" + (names.indexOf(me) >= 0 ? " on" : ""), e + " " + names.length);
+    c.onclick = function(ev){ ev.stopPropagation(); reactTo(rec, e); };
+    box.appendChild(c);
+  });
+  box.style.display = box.children.length ? "flex" : "none";
+}
+
+/* qadalgan xabar */
+function setPin(msg){
+  PINMSG = msg || null;
+  var el = $("pinbar");
+  if(!PINMSG){ el.style.display = "none"; return; }
+  el.style.display = "flex";
+  $("pintxt").textContent = "📌 " + dn(PINMSG) + ": " + snip(PINMSG.text);
+}
+function pinClick(){
+  if(!PINMSG) return;
+  var r = MSGS[PINMSG.id];
+  if(!r) return;
+  r.row.scrollIntoView({block: "center", behavior: "smooth"});
+  r.b.classList.add("flash");
+  setTimeout(function(){ r.b.classList.remove("flash"); }, 1200);
+}
+function unpinClick(ev){
+  ev.stopPropagation();
+  if(canPinHere() && ws) ws.send(JSON.stringify({type: "pin", on: false}));
+  else toast(L("nopinperm"));
+}
+
+/* yo'naltirish */
+function pgForward(id){
+  return function(box){
+    spTitle(L("fwdto"));
+    var sel = [];
+    var sc = secEl(box, null);
+    chatItems().forEach(function(x){
+      var r = userRow(sc, {avatar: x.avatar || x.title.charAt(0).toUpperCase(), name: x.title, display: x.title}, null);
+      var mark = mk("div", "sv", "");
+      r.appendChild(mark);
+      r.onclick = function(){
+        var i = sel.indexOf(x.room);
+        if(i >= 0) sel.splice(i, 1); else sel.push(x.room);
+        mark.textContent = i >= 0 ? "" : "✓";
+      };
+    });
+    var sb = mk("div", "sbtn");
+    var ok = mk("button", null, L("send"));
+    ok.onclick = function(){
+      if(!sel.length) return;
+      var targets = sel.slice();
+      post("/forward", {id: id, rooms: targets}).then(function(){
+        toast(L("fwdsent"));
+        spClose();
+        loadChats(function(){ if(targets.length == 1) openRoom(targets[0]); });
+      });
+    };
+    sb.appendChild(ok);
+    box.appendChild(sb);
+  };
+}
+
+/* guruhlar */
+var GAV = ["👥", "🎮", "💬", "🔥", "⭐", "🚀", "🎵", "📚", "⚽", "🍕", "🐱", "🌍"];
+function openGroupInfo(){
+  var g = groupOf(curRoom);
+  if(g) spOpen(pgGroup(g.gid));
+}
+function pgGroup(gid){
+  return function(box){
+    spTitle(L("ginfo"));
+    var my = SPREV;
+    fetch("/group/" + gid + "?token=" + enc(tok)).then(function(r){ return r.json(); }).then(function(g){
+      if(my !== SPREV) return;
+      if(!g || g.error){ spClose(); return; }
+      var adm = (g.role == "owner" || g.role == "admin");
+      spTitle(g.title);
+      var pr = mk("div", "spro");
+      bigAv(pr, g.avatar, adm ? function(){ spPush(pgGroupEdit(g)); } : null);
+      pr.appendChild(mk("div", "spn", g.title));
+      pr.appendChild(mk("div", "sps", g.members.length + " " + L("members")));
+      box.appendChild(pr);
+      if(adm){
+        var a = secEl(box, null);
+        rowEl(a, "✏️", L("gedit"), null, "", function(){ spPush(pgGroupEdit(g)); });
+        var link = location.origin + "/?join=" + g.invite;
+        rowEl(a, "🔗", L("invite"), link, "", function(){ copyText(link); toast(L("copied")); });
+        rowEl(a, "↺", L("invreset"), null, "", function(){ post("/group/" + gid + "/invite", {}).then(function(){ spRender(); }); });
+      }
+      var m = secEl(box, L("membersh") + " (" + g.members.length + ")");
+      if(adm) rowEl(m, "➕", L("addmember"), null, "", function(){ spPush(pgAddMember(gid)); });
+      g.members.forEach(function(u){
+        var r = userRow(m, u, function(ev){ memberMenu(ev, g, u); });
+        if(u.role == "owner" || u.role == "admin") r.appendChild(mk("div", "sv", u.role == "owner" ? L("owner") : L("admin")));
+      });
+      var l = secEl(box, null);
+      rowEl(l, "🚪", L("leave"), null, "", function(){
+        post("/group/" + gid + "/leave", {}).then(function(){
+          spClose();
+          if(curRoom == "g:" + gid) closeRoom();
+          loadChats();
+        });
+      }, "dng");
+    }).catch(function(){});
+  };
+}
+function memberMenu(ev, g, u){
+  if(u.name == me) return;
+  var adm = (g.role == "owner" || g.role == "admin"), own = (g.role == "owner");
+  var items = [
+    ["👤 " + dn(u), function(){ spClose(); openProfile(u.name); }],
+    ["💬 " + L("writeto"), function(){ spClose(); openDm(u); }]
+  ];
+  if(own && u.role != "owner"){
+    items.push(["⭐ " + (u.role == "admin" ? L("rmadmin") : L("mkadmin")), function(){
+      post("/group/" + g.gid + "/member", {name: u.name, action: u.role == "admin" ? "member" : "admin"}).then(function(){ spRender(); });
+    }]);
+  }
+  if(adm && u.role != "owner" && (u.role != "admin" || own)){
+    items.push(["🚫 " + L("kick"), function(){
+      post("/group/" + g.gid + "/member", {name: u.name, action: "remove"}).then(function(){ spRender(); });
+    }]);
+  }
+  popup(items, ev);
+}
+function pgGroupEdit(g){
+  return function(box){
+    spTitle(L("gedit"));
+    var st = {avatar: g.avatar};
+    var pr = mk("div", "spro");
+    var av = bigAv(pr, st.avatar, pick);
+    function pick(){
+      window.avCb = function(url){ st.avatar = url; setAv(av, url, 96); };
+      $("pfile").click();
+    }
+    var pb = mk("button", "alt", "📷 " + L("choosephoto"));
+    pb.onclick = pick;
+    pr.appendChild(pb);
+    box.appendChild(pr);
+    var ap = mk("div", "apick");
+    GAV.forEach(function(a){
+      var sp = mk("span", "opt", a);
+      sp.onclick = function(){ st.avatar = a; setAv(av, a, 96); };
+      ap.appendChild(sp);
+    });
+    secEl(box, null).appendChild(ap);
+    var f = secEl(box, L("gname"));
+    var w = mk("div", "sf");
+    var ni = document.createElement("input");
+    ni.maxLength = 40; ni.value = g.title; ni.placeholder = L("gname");
+    w.appendChild(ni); f.appendChild(w);
+    var sb = mk("div", "sbtn");
+    var ok = mk("button", null, t("save"));
+    ok.onclick = function(){
+      post("/group/" + g.gid + "/edit", {title: ni.value, avatar: st.avatar}).then(function(){ window.avCb = null; spBack(); });
+    };
+    sb.appendChild(ok);
+    box.appendChild(sb);
+  };
+}
+function pgAddMember(gid){
+  return function(box){
+    spTitle(L("addmember"));
+    var sf = secEl(box, null);
+    var w = mk("div", "sf");
+    var inp = document.createElement("input");
+    inp.placeholder = t("search");
+    w.appendChild(inp); sf.appendChild(w);
+    var res = secEl(box, null);
+    var tmr = null;
+    inp.oninput = function(){
+      clearTimeout(tmr);
+      var q = inp.value.trim();
+      res.innerHTML = "";
+      if(!q) return;
+      tmr = setTimeout(function(){
+        fetch("/users?q=" + enc(q) + "&token=" + enc(tok)).then(function(r){ return r.json(); }).then(function(l){
+          res.innerHTML = "";
+          if(!Array.isArray(l)) return;
+          l.forEach(function(u){
+            userRow(res, u, function(){
+              post("/group/" + gid + "/member", {name: u.name, action: "add"}).then(function(){ toast(L("added")); spBack(); });
+            });
+          });
+        }).catch(function(){});
+      }, 300);
+    };
+  };
+}
+
+/* taklif havolasi orqali kirish: /?join=KOD */
+var JOINCODE = (function(){
+  try{ return new URLSearchParams(location.search).get("join") || ""; }catch(e){ return ""; }
+})();
+function tryJoin(){
+  if(!JOINCODE || !tok) return;
+  var code = JOINCODE;
+  JOINCODE = "";
+  try{ history.replaceState(null, "", location.pathname); }catch(e){}
+  post("/group/join", {code: code}).then(function(d){
+    if(d && d.room) loadChats(function(){ openRoom(d.room); });
+    else toast(L("invbad"));
+  }).catch(function(){});
 }
 
 /* ---------- translation toggle ---------- */

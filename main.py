@@ -24,12 +24,21 @@ FILE_TYPES = {
     "video/quicktime": ("mov", "vid"),
     "audio/webm": ("webm", "aud"), "audio/mp4": ("m4a", "aud"),
     "audio/ogg": ("ogg", "aud"), "audio/mpeg": ("mp3", "aud"),
+    "application/pdf": ("pdf", "doc"), "text/plain": ("txt", "doc"), "text/csv": ("csv", "doc"),
+    "application/zip": ("zip", "doc"), "application/x-zip-compressed": ("zip", "doc"),
+    "application/msword": ("doc", "doc"),
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document": ("docx", "doc"),
+    "application/vnd.ms-excel": ("xls", "doc"),
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": ("xlsx", "doc"),
+    "application/vnd.ms-powerpoint": ("ppt", "doc"),
+    "application/vnd.openxmlformats-officedocument.presentationml.presentation": ("pptx", "doc"),
 }
-MEDIA_RE = re.compile(r"^\[(img|vid|aud)\]/uploads/[\w.\-]+$")
+MEDIA_RE = re.compile(r"^\[(img|vid|aud)\]/uploads/[\w.\-]+$|^\[doc\]/uploads/[\w.\-]+\|[^|]{1,120}\|\d{1,10}$")
+REACTIONS = ["👍", "❤️", "😂", "😮", "😢", "🙏", "🔥", "👎"]
 
 
 @app.post("/upload")
-async def upload(req: Request, token: str = ""):
+async def upload(req: Request, token: str = "", fname: str = ""):
     if not db.name_by_token(token):
         return JSONResponse({"error": "Kirish kerak"}, status_code=401)
     ctype = req.headers.get("content-type", "").split(";")[0].strip()
@@ -41,10 +50,11 @@ async def upload(req: Request, token: str = ""):
     if not body or len(body) > MAX_FILE:
         return JSONResponse({"error": "Fayl katta"}, status_code=400)
     ext, kind = FILE_TYPES[ctype]
-    fname = uuid.uuid4().hex + "." + ext
-    with open(os.path.join("uploads", fname), "wb") as f:
+    stored = uuid.uuid4().hex + "." + ext
+    with open(os.path.join("uploads", stored), "wb") as f:
         f.write(body)
-    return {"url": "/uploads/" + fname, "kind": kind}
+    shown = re.sub(r"[|\\/\r\n]", "_", os.path.basename(fname or ""))[:120] or ("fayl." + ext)
+    return {"url": "/uploads/" + stored, "kind": kind, "name": shown, "size": len(body)}
 
 
 # ---------- xonalar, o'yin ----------
@@ -75,6 +85,76 @@ async def tell(room, name, text):
     for ws, n in list(rooms.get(room, [])):
         if n == name:
             await _send(ws, {"type": "err", "text": text})
+
+
+def can_access(room, name):
+    if room.startswith("dm:"):
+        pair = room[3:].split("|")
+        return len(pair) == 2 and name in pair
+    gid = db.room_gid(room)
+    if gid is not None:
+        return db.member_role(gid, name) is not None
+    return True
+
+
+def can_pin(room, name):
+    gid = db.room_gid(room)
+    if gid is None:
+        return True
+    return db.member_role(gid, name) in ("owner", "admin")
+
+
+def is_room_admin(room, name):
+    gid = db.room_gid(room)
+    return gid is not None and db.member_role(gid, name) in ("owner", "admin")
+
+
+async def ping_chats(names):
+    """Ro'yxatlarni yangilash uchun onlayn odamlarga signal."""
+    for n in set(names):
+        for w in list(usocks.get(n, [])):
+            await _send(w, {"type": "chats"})
+
+
+async def deliver(room, name, text, reply_to=None, fwd=None):
+    """Xabarni tekshiradi, saqlaydi va hammaga yuboradi. Xato bo'lsa matn qaytaradi, aks holda None."""
+    other = None
+    gid = db.room_gid(room)
+    if room.startswith("dm:"):
+        pair = room[3:].split("|")
+        if len(pair) != 2 or name not in pair:
+            return "Xabar yuborib bo'lmadi"
+        other = pair[1] if pair[0] == name else pair[0]
+        if other != name:
+            op = db.get_profile(other)
+            if (db.is_blocked(other, name) or db.is_blocked(name, other)
+                    or (op and op["msg_priv"] == 1 and not db.prior_chat(room, other))):
+                return "Xabar yuborib bo'lmadi"
+    elif gid is not None:
+        if db.member_role(gid, name) is None:
+            return "Xabar yuborib bo'lmadi"
+    if isinstance(reply_to, int):
+        src = db.get_message(reply_to)
+        if not src or src["room"] != room:
+            reply_to = None
+    else:
+        reply_to = None
+    mid, now = db.save_message(room, name, text, reply_to, fwd)
+    payload = db.message_payload(mid)
+    await broadcast(room, payload)
+    note = {"type": "notify", "room": room, "id": mid, "name": name, "display": payload["display"],
+            "text": text, "time": now, "avatar": payload["avatar"], "title": ""}
+    targets = []
+    if other is not None and other != name:
+        targets = [other]
+    elif gid is not None:
+        g = db.get_group(gid)
+        note["title"] = g["title"] if g else ""
+        targets = [n for n in db.member_names(gid) if n != name]
+    for n in targets:
+        for w in list(usocks.get(n, [])):
+            await _send(w, note)
+    return None
 
 
 async def send_game(room):
@@ -425,8 +505,154 @@ def chats(token: str = "", rooms: str = ""):
     for r in wanted:
         if r.startswith("dm:"):
             continue
+        if r.startswith("g:"):
+            continue
         groups[r] = {"last": db.room_last(r), "unread": db.unread(r, me)}
-    return {"dms": dms, "rooms": groups}
+    grps = []
+    for g in db.user_groups(me):
+        room = db.group_room(g["id"])
+        grps.append({"gid": g["id"], "room": room, "title": g["title"], "avatar": g["avatar"], "role": g["role"],
+                     "n": g["n"], "last": db.room_last(room), "unread": db.unread(room, me)})
+    return {"dms": dms, "rooms": groups, "groups": grps}
+
+
+# ---------- yo'naltirish va guruhlar ----------
+
+def _avatar_value(v):
+    v = str(v or "")
+    if re.fullmatch(r"/uploads/[\w\-]+\.(jpg|png|gif|webp)", v):
+        return v
+    return v[:8] or "👥"
+
+
+@app.post("/forward")
+async def forward(req: Request):
+    d = await req.json()
+    me = db.name_by_token(d.get("token", ""))
+    if not me:
+        return JSONResponse({"error": "Kirish kerak"}, status_code=401)
+    mid = d.get("id")
+    src = db.get_message(mid) if isinstance(mid, int) else None
+    if not src or src["deleted"] or not can_access(src["room"], me):
+        return JSONResponse({"error": "Xato"}, status_code=400)
+    targets = [r for r in (d.get("rooms") or []) if isinstance(r, str)][:10]
+    fwd = src["fwd"] or src["name"]
+    failed = 0
+    for r in targets:
+        if not can_access(r, me) or await deliver(r, me, src["text"], None, fwd):
+            failed += 1
+    return {"ok": True, "failed": failed}
+
+
+@app.post("/group")
+async def group_create(req: Request):
+    d = await req.json()
+    me = db.name_by_token(d.get("token", ""))
+    title = str(d.get("title", "")).strip()[:40]
+    if not me or not title:
+        return JSONResponse({"error": "Xato"}, status_code=400)
+    gid = db.create_group(title, me)
+    return {"gid": gid, "room": db.group_room(gid)}
+
+
+@app.post("/group/join")
+async def group_join(req: Request):
+    d = await req.json()
+    me = db.name_by_token(d.get("token", ""))
+    gid = db.group_by_invite(str(d.get("code", "")))
+    if not me or gid is None:
+        return JSONResponse({"error": "Havola yaroqsiz"}, status_code=400)
+    if db.member_role(gid, me) is None:
+        db.add_member(gid, me)
+        room = db.group_room(gid)
+        await say(room, db.display_of(me) + " guruhga qo'shildi")
+        await ping_chats(db.member_names(gid))
+    g = db.get_group(gid)
+    return {"gid": gid, "room": db.group_room(gid), "title": g["title"]}
+
+
+@app.get("/group/{gid}")
+def group_info(gid: int, token: str = ""):
+    me = db.name_by_token(token)
+    role = db.member_role(gid, me) if me else None
+    g = db.get_group(gid)
+    if not me or role is None or not g:
+        return JSONResponse({"error": "Topilmadi"}, status_code=404)
+    online = set(usocks.keys())
+    members = []
+    for x in db.members_of(gid):
+        x["online"] = x["name"] in online
+        members.append(x)
+    return {"gid": gid, "title": g["title"], "avatar": g["avatar"], "owner": g["owner"], "role": role,
+            "invite": g["invite"] if role in ("owner", "admin") else "", "members": members}
+
+
+@app.post("/group/{gid}/edit")
+async def group_edit(gid: int, req: Request):
+    d = await req.json()
+    me = db.name_by_token(d.get("token", ""))
+    if not me or db.member_role(gid, me) not in ("owner", "admin"):
+        return JSONResponse({"error": "Ruxsat yo'q"}, status_code=403)
+    title = d.get("title")
+    title = str(title).strip()[:40] if isinstance(title, str) and title.strip() else None
+    avatar = _avatar_value(d["avatar"]) if d.get("avatar") else None
+    db.edit_group(gid, title, avatar)
+    await ping_chats(db.member_names(gid))
+    return {"ok": True}
+
+
+@app.post("/group/{gid}/invite")
+async def group_invite(gid: int, req: Request):
+    d = await req.json()
+    me = db.name_by_token(d.get("token", ""))
+    if not me or db.member_role(gid, me) not in ("owner", "admin"):
+        return JSONResponse({"error": "Ruxsat yo'q"}, status_code=403)
+    return {"invite": db.reset_invite(gid)}
+
+
+@app.post("/group/{gid}/member")
+async def group_member(gid: int, req: Request):
+    d = await req.json()
+    me = db.name_by_token(d.get("token", ""))
+    my = db.member_role(gid, me) if me else None
+    other = str(d.get("name", ""))
+    action = d.get("action")
+    if my not in ("owner", "admin") or not db.get_profile(other):
+        return JSONResponse({"error": "Ruxsat yo'q"}, status_code=403)
+    room = db.group_room(gid)
+    their = db.member_role(gid, other)
+    if action == "add":
+        if their is None:
+            db.add_member(gid, other)
+            await say(room, db.display_of(other) + " guruhga qo'shildi")
+    elif action == "remove":
+        if their is None or their == "owner" or (their == "admin" and my != "owner") or other == me:
+            return JSONResponse({"error": "Ruxsat yo'q"}, status_code=403)
+        db.remove_member(gid, other)
+        await say(room, db.display_of(other) + " guruhdan chiqarildi")
+    elif action in ("admin", "member"):
+        if my != "owner" or their in (None, "owner"):
+            return JSONResponse({"error": "Ruxsat yo'q"}, status_code=403)
+        db.set_member_role(gid, other, action)
+    else:
+        return JSONResponse({"error": "Xato"}, status_code=400)
+    await ping_chats(db.member_names(gid) + [other])
+    return {"ok": True}
+
+
+@app.post("/group/{gid}/leave")
+async def group_leave(gid: int, req: Request):
+    d = await req.json()
+    me = db.name_by_token(d.get("token", ""))
+    if not me or db.member_role(gid, me) is None:
+        return JSONResponse({"error": "Xato"}, status_code=400)
+    room = db.group_room(gid)
+    before = db.member_names(gid)
+    res = db.leave_group(gid, me)
+    if res == "left":
+        await say(room, db.display_of(me) + " guruhni tark etdi")
+    await ping_chats(before)
+    return {"ok": True}
 
 
 # ---------- WebSocket ----------
@@ -462,16 +688,17 @@ async def chat(ws: WebSocket, room: str, token: str):
         await ws.close()
         return
     is_dm = room.startswith("dm:")
-    if is_dm:
-        pair = room[3:].split("|")
-        if len(pair) != 2 or name not in pair:
-            await ws.close()
-            return
+    gid = db.room_gid(room)
+    if not can_access(room, name):
+        await ws.close()
+        return
+    plain = (not is_dm) and gid is None
     rooms.setdefault(room, []).append((ws, name))
     for m in db.last_messages(room):
         await ws.send_text(json.dumps(m))
     await ws.send_text(json.dumps({"type": "reads", "reads": db.get_reads(room)}))
-    if not is_dm:
+    await ws.send_text(json.dumps({"type": "pin", "msg": db.get_pin(room)}))
+    if plain:
         await broadcast(room, {"type": "system", "text": name + " qo'shildi"})
     await send_lobby(room)
     await send_game(room)
@@ -489,32 +716,9 @@ async def chat(ws: WebSocket, room: str, token: str):
                     text = str(data.get("text", "")).strip()[:1000]
                     if not text:
                         continue
-                    rt = data.get("reply_to")
-                    if isinstance(rt, int):
-                        src = db.get_message(rt)
-                        if not src or src["room"] != room:
-                            rt = None
-                    else:
-                        rt = None
-                    if is_dm:
-                        other = pair[1] if pair[0] == name else pair[0]
-                        if other != name:
-                            op = db.get_profile(other)
-                            if (db.is_blocked(other, name) or db.is_blocked(name, other)
-                                    or (op and op["msg_priv"] == 1 and not db.prior_chat(room, other))):
-                                await tell(room, name, "Xabar yuborib bo'lmadi")
-                                continue
-                    mid, now = db.save_message(room, name, text, rt)
-                    prof = db.get_profile(name)
-                    await broadcast(room, {"type": "msg", "id": mid, "name": name, "display": prof["display"],
-                                           "color": prof["color"], "text": text,
-                                           "avatar": "🙂" if prof["hide_photo"] else prof["avatar"], "time": now,
-                                           "edited": 0, "deleted": 0, "reply": db.reply_info(rt)})
-                    if is_dm and other != name:
-                        for w in list(usocks.get(other, [])):
-                            await _send(w, {"type": "notify", "room": room, "id": mid, "name": name,
-                                            "display": prof["display"], "text": text, "time": now,
-                                            "avatar": "🙂" if prof["hide_photo"] else prof["avatar"]})
+                    err = await deliver(room, name, text, data.get("reply_to"))
+                    if err:
+                        await tell(room, name, err)
                 elif kind == "edit":
                     mid = data.get("id")
                     text = str(data.get("text", "")).strip()[:1000]
@@ -526,8 +730,32 @@ async def chat(ws: WebSocket, room: str, token: str):
                             await broadcast(room, {"type": "edit", "id": mid, "text": text})
                 elif kind == "del":
                     mid = data.get("id")
-                    if isinstance(mid, int) and db.delete_message(mid, room, name):
-                        await broadcast(room, {"type": "del", "id": mid})
+                    src = db.get_message(mid) if isinstance(mid, int) else None
+                    if (src and src["room"] == room and not src["deleted"]
+                            and (src["name"] == name or is_room_admin(room, name))):
+                        if db.delete_any(mid):
+                            await broadcast(room, {"type": "del", "id": mid})
+                            if db.pin_id(room) == mid:
+                                db.clear_pin(room)
+                                await broadcast(room, {"type": "pin", "msg": None})
+                elif kind == "react":
+                    mid = data.get("id")
+                    emoji = data.get("emoji")
+                    src = db.get_message(mid) if isinstance(mid, int) else None
+                    if src and src["room"] == room and not src["deleted"] and emoji in REACTIONS:
+                        await broadcast(room, {"type": "react", "id": mid,
+                                               "reactions": db.toggle_reaction(mid, name, emoji)})
+                elif kind == "pin":
+                    mid = data.get("id")
+                    if can_pin(room, name):
+                        if data.get("on", True):
+                            src = db.get_message(mid) if isinstance(mid, int) else None
+                            if src and src["room"] == room and not src["deleted"]:
+                                db.set_pin(room, mid)
+                                await broadcast(room, {"type": "pin", "msg": db.message_payload(mid)})
+                        else:
+                            db.clear_pin(room)
+                            await broadcast(room, {"type": "pin", "msg": None})
                 elif kind == "typing":
                     for w, n in list(rooms.get(room, [])):
                         if n != name:
@@ -551,7 +779,7 @@ async def chat(ws: WebSocket, room: str, token: str):
             rooms[room].remove((ws, name))
         except (KeyError, ValueError):
             pass
-        if not is_dm:
+        if plain:
             await broadcast(room, {"type": "system", "text": name + " chiqib ketdi"})
         if not any(n == name for _, n in rooms.get(room, [])):
             await player_left(room, name)
