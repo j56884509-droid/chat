@@ -8,8 +8,11 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
+import ai
+import asyncio
 import db
 from durak import Durak
+from games import XO, RPS
 
 app = FastAPI()
 
@@ -157,13 +160,89 @@ async def deliver(room, name, text, reply_to=None, fwd=None):
     return None
 
 
+BOT = db.BOT_NAME
+GREETING = ("Salom! Men «AI do'st»man 🤖 Savol bering, gaplashamiz, maslahat so'rang. "
+            "Eslatma: xabarlaringiz AI xizmatiga (Google, Groq va boshqalar) yuboriladi, "
+            "shuning uchun parol yoki shaxsiy ma'lumotlarni yozmang.")
+AI_HITS = {}
+AI_LOCKS = {}
+
+
+def ai_allowed(name):
+    """Bepul limitlarni asrash uchun: daqiqada 10 va kuniga 150 ta so'rov."""
+    now = time.time()
+    hits = [t for t in AI_HITS.get(name, []) if now - t < 86400]
+    if sum(1 for t in hits if now - t < 60) >= 10:
+        return "min"
+    if len(hits) >= 150:
+        return "day"
+    hits.append(now)
+    AI_HITS[name] = hits
+    return ""
+
+
+async def bot_reply(room, user, text):
+    lock = AI_LOCKS.setdefault(room, asyncio.Lock())
+    async with lock:
+        done = asyncio.Event()
+
+        async def typing():
+            while not done.is_set():
+                await broadcast(room, {"type": "typing", "name": BOT, "display": db.display_of(BOT)})
+                try:
+                    await asyncio.wait_for(done.wait(), 2.5)
+                except asyncio.TimeoutError:
+                    pass
+
+        tt = asyncio.create_task(typing())
+        reply = ""
+        try:
+            if MEDIA_RE.match(text):
+                reply = "Hozircha faqat matn xabarlarini tushunaman 🙂"
+            else:
+                why = ai_allowed(user)
+                if why == "min":
+                    reply = "Juda tez yozyapsiz, bir daqiqa kuting 🙂"
+                elif why == "day":
+                    reply = "Bugungi limit tugadi, ertaga davom etamiz 🙂"
+                else:
+                    history = []
+                    for n, t in db.recent_texts(room, 14):
+                        if n == BOT and (t or "").startswith("⚠"):
+                            continue
+                        history.append(("assistant" if n == BOT else "user",
+                                        "[fayl]" if MEDIA_RE.match(t or "") else t))
+                    try:
+                        reply, _ = await asyncio.get_running_loop().run_in_executor(None, ai.ask, history)
+                    except ai.AIError as e:
+                        reply = "⚠ " + e.user_message
+        except Exception as e:
+            print("AI xato:", repr(e)[:120])
+            reply = "⚠ AI'da kutilmagan xato chiqdi."
+        finally:
+            done.set()
+            await tt
+        for part in ai.split_text(reply):
+            await deliver(room, BOT, part)
+
+
+kinds = {}
+GAME_DEFS = {
+    "durak": {"cls": Durak, "title": "Durak", "min": 2, "max": 4},
+    "xo": {"cls": XO, "title": "XO", "min": 2, "max": 2},
+    "rps": {"cls": RPS, "title": "Tosh-qaychi-qog'oz", "min": 2, "max": 2},
+}
+
+
 async def send_game(room):
     g = games.get(room)
     if not g:
         return
     for ws, name in list(rooms.get(room, [])):
         if name in g.players:
-            await _send(ws, g.state(name))
+            st = g.state(name)
+            st["kind"] = kinds.get(room, "durak")
+            await _send(ws, st)
 
 
 async def send_lobby(room):
@@ -171,7 +250,9 @@ async def send_lobby(room):
     if not l:
         await broadcast(room, {"type": "lobby", "gone": True})
     else:
-        await broadcast(room, {"type": "lobby", "host": l["host"], "players": l["players"]})
+        d = GAME_DEFS[l["game"]]
+        await broadcast(room, {"type": "lobby", "host": l["host"], "players": l["players"],
+                               "game": l["game"], "min": d["min"], "max": d["max"]})
 
 
 async def player_left(room, name):
@@ -203,13 +284,19 @@ async def handle_game(room, name, data):
             del games[room]
             await broadcast(room, {"type": "game", "gone": True})
         if not l:
-            l = {"host": name, "players": []}
+            kind = data.get("game")
+            if kind not in GAME_DEFS:
+                kind = kinds.get(room, "durak")
+            l = {"host": name, "players": [], "game": kind}
             lobbies[room] = l
-            await say(room, name + " durak o'yiniga odam yig'moqda")
+            kinds[room] = kind
+            title = "durak" if kind == "durak" else GAME_DEFS[kind]["title"]
+            await say(room, name + " " + title + " o'yiniga odam yig'moqda")
         if name in l["players"]:
             return
-        if len(l["players"]) >= 4:
-            await tell(room, name, "O'yinda 4 kishi to'lgan")
+        d = GAME_DEFS[l["game"]]
+        if len(l["players"]) >= d["max"]:
+            await tell(room, name, "O'yinda %d kishi to'lgan" % d["max"])
             return
         l["players"].append(name)
         await send_lobby(room)
@@ -225,14 +312,16 @@ async def handle_game(room, name, data):
         if not l or name != l["host"]:
             await tell(room, name, "Faqat boshlovchi o'yinni boshlay oladi")
             return
-        if len(l["players"]) < 2:
-            await tell(room, name, "Durak uchun kamida 2 kishi kerak")
+        d = GAME_DEFS[l["game"]]
+        if len(l["players"]) < d["min"]:
+            await tell(room, name, "%s uchun kamida %d kishi kerak" % (d["title"], d["min"]))
             return
         players = l["players"]
         del lobbies[room]
-        games[room] = Durak(players)
+        games[room] = d["cls"](players)
+        kinds[room] = l["game"]
         await send_lobby(room)
-        await say(room, "Durak boshlandi: " + ", ".join(players))
+        await say(room, d["title"] + " boshlandi: " + ", ".join(players))
         await send_game(room)
     else:
         if not g or name not in g.players:
@@ -297,28 +386,39 @@ def run_engines(text, src, to):
             result = fn(text, src, to)
             if result:
                 print("tarjima:", name)
-                return result
+                return result, name
         except Exception as e:
             print("xato:", name, str(e)[:80])
             COOLDOWN[name] = time.time() + 600
-    return None
+    return None, ""
 
 
 @app.get("/translate")
-def translate(text: str, to: str = "ru"):
+def translate(text: str, to: str = "ru", src: str = ""):
+    """ok=False bo'lsa, hech bir tarjimon javob bermadi (sahifa ogohlantirish ko'rsatadi)."""
     if to not in LANG_NAMES or len(text) > 450:
-        return {"text": text}
-    src = guess_lang(text)
+        return {"text": text, "ok": True, "same": True}
+    if src not in LANG_NAMES:
+        src = guess_lang(text)
     if src == to:
-        return {"text": text}
+        return {"text": text, "ok": True, "same": True}
     key = (text, to)
     if key in TR_CACHE:
-        return {"text": TR_CACHE[key]}
-    result = run_engines(text, src, to)
+        return {"text": TR_CACHE[key], "ok": True}
+    result, engine = run_engines(text, src, to)
     if not result:
-        return {"text": text}
+        return {"text": text, "ok": False}
     TR_CACHE[key] = result
-    return {"text": result}
+    if len(TR_CACHE) > 5000:
+        TR_CACHE.clear()
+    return {"text": result, "ok": True, "engine": engine}
+
+
+@app.get("/translate/status")
+def translate_status():
+    now = time.time()
+    return [{"name": n, "ok": COOLDOWN.get(n, 0) <= now, "wait": max(0, int(COOLDOWN.get(n, 0) - now))}
+            for n, _ in ENGINES]
 
 
 # ---------- sahifa, kirish, profil ----------
@@ -339,7 +439,7 @@ async def do_register(req: Request):
     pw = d.get("password", "")
     if not (2 <= len(name) <= 20) or len(pw) < 4:
         return JSONResponse({"error": "Ism 2-20 harf, parol kamida 4 belgi bo'lsin"}, status_code=400)
-    token = None if name.lower() == "me" else db.register(name, pw, _ua(req))
+    token = None if name.lower() in ("me", db.BOT_NAME) else db.register(name, pw, _ua(req))
     if not token:
         return JSONResponse({"error": "Bu ism band"}, status_code=400)
     return {"token": token, "name": name}
@@ -363,10 +463,10 @@ async def get_profile(name: str, token: str = ""):
     p = db.get_profile(name)
     if not p:
         return JSONResponse({"error": "Topilmadi"}, status_code=404)
-    online = any(n == name for lst in rooms.values() for _, n in lst) or bool(usocks.get(name))
+    online = any(n == name for lst in rooms.values() for _, n in lst) or bool(usocks.get(name)) or bool(p.get("bot"))
     other = viewer != name
     cut = other and viewer is not None and db.is_blocked(name, viewer)
-    hidden = other and (bool(p["hide_seen"]) or cut)
+    hidden = other and not p.get("bot") and (bool(p["hide_seen"]) or cut)
     out = {"name": name, "display": p["display"], "color": p["color"],
            "avatar": "🙂" if other and (p["hide_photo"] or cut) else p["avatar"],
            "bio": "" if other and (p["hide_bio"] or cut) else p["bio"],
@@ -475,8 +575,10 @@ def find_users(q: str = "", token: str = ""):
     q = q.strip()
     if not me or not q:
         return []
+    hide_bot = "" if ai.enabled() else " AND bot=0"
     rows = db.conn.execute(
-        "SELECT name, avatar, display, hide_photo FROM users WHERE (name LIKE ? OR display LIKE ?) AND name != ? LIMIT 20",
+        "SELECT name, avatar, display, hide_photo FROM users WHERE (name LIKE ? OR display LIKE ?) AND name != ?"
+        + hide_bot + " LIMIT 20",
         ("%" + q + "%", "%" + q + "%", me)).fetchall()
     return [{"name": r[0], "avatar": "🙂" if r[3] else r[1], "display": r[2] or r[0]} for r in rows]
 
@@ -492,10 +594,13 @@ def chats(token: str = "", rooms: str = ""):
     except Exception:
         wanted = []
     dms = []
+    ai_on = ai.enabled()
     for (room,) in db.conn.execute("SELECT DISTINCT room FROM messages WHERE room LIKE 'dm:%'").fetchall():
         pair = room[3:].split("|")
         if len(pair) == 2 and me in pair:
             other = pair[1] if pair[0] == me else pair[0]
+            if other == db.BOT_NAME and not ai_on:
+                continue
             p = db.get_profile(other)
             if p:
                 dms.append({"name": other, "display": p["display"],
@@ -513,7 +618,7 @@ def chats(token: str = "", rooms: str = ""):
         room = db.group_room(g["id"])
         grps.append({"gid": g["id"], "room": room, "title": g["title"], "avatar": g["avatar"], "role": g["role"],
                      "n": g["n"], "last": db.room_last(room), "unread": db.unread(room, me)})
-    return {"dms": dms, "rooms": groups, "groups": grps}
+    return {"dms": dms, "rooms": groups, "groups": grps, "ai": ai_on}
 
 
 # ---------- yo'naltirish va guruhlar ----------
@@ -655,6 +760,29 @@ async def group_leave(gid: int, req: Request):
     return {"ok": True}
 
 
+@app.get("/ai/status")
+def ai_status(token: str = ""):
+    if not db.name_by_token(token):
+        return JSONResponse({"error": "Kirish kerak"}, status_code=401)
+    return ai.status()
+
+
+@app.post("/ai/test")
+async def ai_test(req: Request):
+    d = await req.json()
+    me = db.name_by_token(d.get("token", ""))
+    if not me:
+        return JSONResponse({"error": "Kirish kerak"}, status_code=401)
+    if ai_allowed(me):
+        return {"ok": False, "error": "Juda ko'p so'rov, birozdan keyin urinib ko'ring"}
+    try:
+        text, prov = await asyncio.get_running_loop().run_in_executor(
+            None, ai.ask, [("user", "Salom! Bitta qisqa gap bilan javob ber.")])
+        return {"ok": True, "provider": prov, "text": text[:200]}
+    except ai.AIError as e:
+        return {"ok": False, "error": e.user_message}
+
+
 # ---------- WebSocket ----------
 
 @app.websocket("/wsu/{token}")
@@ -694,7 +822,8 @@ async def chat(ws: WebSocket, room: str, token: str):
         return
     plain = (not is_dm) and gid is None
     rooms.setdefault(room, []).append((ws, name))
-    for m in db.last_messages(room):
+    hist = db.last_messages(room)
+    for m in hist:
         await ws.send_text(json.dumps(m))
     await ws.send_text(json.dumps({"type": "reads", "reads": db.get_reads(room)}))
     await ws.send_text(json.dumps({"type": "pin", "msg": db.get_pin(room)}))
@@ -702,6 +831,8 @@ async def chat(ws: WebSocket, room: str, token: str):
         await broadcast(room, {"type": "system", "text": name + " qo'shildi"})
     await send_lobby(room)
     await send_game(room)
+    if not hist and name != BOT and room == db.dm_room(name, BOT):
+        await deliver(room, BOT, GREETING)
     try:
         while True:
             try:
@@ -719,6 +850,8 @@ async def chat(ws: WebSocket, room: str, token: str):
                     err = await deliver(room, name, text, data.get("reply_to"))
                     if err:
                         await tell(room, name, err)
+                    elif name != BOT and room == db.dm_room(name, BOT):
+                        asyncio.create_task(bot_reply(room, name, text))
                 elif kind == "edit":
                     mid = data.get("id")
                     text = str(data.get("text", "")).strip()[:1000]

@@ -228,6 +228,20 @@ a.doc{display:flex;align-items:center;gap:10px;padding:4px 2px;color:inherit;tex
 a.doc .di{font-size:32px}
 a.doc .dn{font-weight:600;overflow-wrap:anywhere}
 a.doc .ds{font-size:12px;color:var(--sub)}
+#trprev{display:none;align-items:center;gap:8px;padding:6px 12px;background:var(--panel);border-top:1px solid var(--border)}
+#trtxt{flex:1;min-width:0;border-left:3px solid var(--accent);padding-left:8px;font-size:14px;cursor:pointer;overflow-wrap:anywhere}
+#trprev button{font-size:16px!important;padding:2px 8px!important}
+#gx{color:#fff;text-align:center}
+.gxh{font-size:14px;margin-bottom:6px}
+.gxs{font-size:15px;font-weight:600;margin:8px 0}
+.xo{display:grid;grid-template-columns:repeat(3,64px);gap:6px;justify-content:center;margin:8px 0}
+.xo button{height:64px;font-size:30px;font-weight:700;background:#164b2e;color:#fff;padding:0}
+.xo button.win{background:#2e8b57}
+.xo .mx{color:#ffd166}.xo .mo{color:#8ecae6}
+.rpsb{display:flex;gap:10px;justify-content:center;margin:8px 0}
+.rpsb button{font-size:34px;width:74px;height:74px;background:#164b2e;padding:0}
+.rpsb button.sel{background:#2e8b57;outline:2px solid #fff}
+#gxerr{color:#ffb4b4;font-size:13px;min-height:16px}
 </style></head><body>
 
 <div id="login" class="screen">
@@ -267,7 +281,7 @@ a.doc .ds{font-size:12px;color:var(--sub)}
 <div id="sbar"><input id="sq" data-ph="schat" oninput="filterLog()"></div>
 <div id="pinbar" onclick="pinClick()"><div id="pintxt"></div><button class="ic" onclick="unpinClick(event)" style="font-size:16px!important;padding:2px 8px!important">✕</button></div>
 <div id="lobby">
-<div data-i18n="ltitle"></div>
+<div id="ltitle"></div>
 <div id="lplayers"></div>
 <div id="lbtn">
 <button id="bjoin" data-i18n="ljoin" onclick="act('join')"></button>
@@ -276,6 +290,7 @@ a.doc .ds{font-size:12px;color:var(--sub)}
 </div>
 </div>
 <div id="game">
+<div id="gx" style="display:none"></div>
 <div id="gtop"></div>
 <div id="gtable"></div>
 <div id="gstatus"></div>
@@ -288,6 +303,7 @@ a.doc .ds{font-size:12px;color:var(--sub)}
 </div>
 <div id="log"></div>
 <div id="rbar"><div id="rtxt"></div><button onclick="cancelReply()">✕</button></div>
+<div id="trprev"><div id="trtxt"></div><button class="ic" onclick="trPrevHide()">✕</button></div>
 <div id="emo"></div>
 <div id="bar">
 <div id="pill">
@@ -406,6 +422,12 @@ var T = {
 
 var SRV = {
   ru: {
+    "Navbat sizniki emas": "Сейчас не ваш ход",
+    "Bu katak band": "Эта клетка занята",
+    "Noto'g'ri katak": "Неверная клетка",
+    "Noto'g'ri amal": "Неверное действие",
+    "Tanlov noto'g'ri": "Неверный выбор",
+    "Siz tanlab bo'ldingiz": "Вы уже выбрали",
     "Ism 2-20 harf, parol kamida 4 belgi bo'lsin": "Имя 2–20 символов, пароль не короче 4 символов",
     "Bu ism band": "Это имя занято",
     "Ism yoki parol noto'g'ri": "Неверное имя или пароль",
@@ -428,6 +450,12 @@ var SRV = {
     "Durang!": "Ничья!"
   },
   en: {
+    "Navbat sizniki emas": "It's not your turn",
+    "Bu katak band": "This cell is taken",
+    "Noto'g'ri katak": "Invalid cell",
+    "Noto'g'ri amal": "Invalid action",
+    "Tanlov noto'g'ri": "Invalid choice",
+    "Siz tanlab bo'ldingiz": "You already chose",
     "Ism 2-20 harf, parol kamida 4 belgi bo'lsin": "Name 2-20 characters, password at least 4 characters",
     "Bu ism band": "This name is taken",
     "Ism yoki parol noto'g'ri": "Wrong name or password",
@@ -452,6 +480,11 @@ var SRV = {
 };
 
 var PAT = [
+  [/^O'yinda (\d+) kishi to'lgan$/, {ru: "Уже $1 игрока", en: "Already $1 players"}],
+  [/^(.+) uchun kamida (\d+) kishi kerak$/, {ru: "Для игры «$1» нужно минимум $2 игрока", en: "$1 needs at least $2 players"}],
+  [/^(.+) yutdi! 🎉$/, {ru: "$1 победил(а)! 🎉", en: "$1 wins! 🎉"}],
+  [/^(XO|Tosh-qaychi-qog'oz) boshlandi: (.+)$/, {ru: "Игра началась: $2", en: "Game started: $2"}],
+  [/^(.+) (XO|Tosh-qaychi-qog'oz) o'yiniga odam yig'moqda$/, {ru: "$1 собирает игроков в «$2»", en: "$1 is gathering players for $2"}],
   [/^(.+) guruhga qo'shildi$/, {ru: "$1 присоединился(ась) к группе", en: "$1 joined the group"}],
   [/^(.+) guruhni tark etdi$/, {ru: "$1 покинул(а) группу", en: "$1 left the group"}],
   [/^(.+) guruhdan chiqarildi$/, {ru: "$1 удалён(а) из группы", en: "$1 was removed from the group"}],
@@ -497,6 +530,7 @@ function applyLang(){
   updateTr();
   renderRooms();
   if(lastGame) showGame(lastGame);
+  if(lastLobby) showLobby(lastLobby);
   if($("sp") && $("sp").style.display == "flex") spRender();
 }
 
@@ -679,12 +713,14 @@ function chatItems(){
   CHATS.dms.forEach(function(d){
     seen[d.name] = 1;
     var sv = (d.name == me);
-    items.push({room: dmRoom(d.name), title: sv ? t("saved") : dn(d), avatar: sv ? "🔖" : d.avatar, dm: true, last: d.last, unread: sv ? 0 : d.unread});
+    var ai = (d.name == AI_USER);
+    items.push({room: dmRoom(d.name), title: sv ? t("saved") : (ai ? L("aifriend") : dn(d)), avatar: sv ? "🔖" : (ai ? "🤖" : d.avatar), dm: true, last: d.last, unread: sv ? 0 : d.unread});
   });
   NEWDM.forEach(function(u){
     if(!seen[u.name]) items.push({room: dmRoom(u.name), title: dn(u), avatar: u.avatar, dm: true, last: null, unread: 0});
   });
   if(!seen[me]) items.push({room: dmRoom(me), title: t("saved"), avatar: "🔖", dm: true, last: null, unread: 0});
+  if(CHATS.ai && !seen[AI_USER]) items.push({room: dmRoom(AI_USER), title: L("aifriend"), avatar: "🤖", dm: true, last: null, unread: 0});
   (CHATS.groups || []).forEach(function(g){
     items.push({room: g.room, title: g.title, avatar: g.avatar, dm: false, grp: true, gid: g.gid, role: g.role, n: g.n, last: g.last, unread: g.unread});
   });
@@ -761,6 +797,7 @@ function toggleMute(){ if(!curRoom) return; toggleIn(MUTES, "mutes", curRoom); u
 function dmTitle(room){
   var o = dmOther(room);
   if(o == me) return t("saved");
+  if(o == AI_USER) return L("aifriend");
   var u = CHATS.dms.concat(NEWDM).filter(function(x){ return x.name == o; })[0];
   return u ? dn(u) : o;
 }
@@ -771,7 +808,7 @@ function updateHeaderBtns(){
   if(isDm()){
     var o = dmOther(curRoom);
     var u = CHATS.dms.concat(NEWDM).filter(function(x){ return x.name == o; })[0];
-    setAv(a, o == me ? "🔖" : (u ? u.avatar : "🙂"), 42);
+    setAv(a, o == me ? "🔖" : (o == AI_USER ? "🤖" : (u ? u.avatar : "🙂")), 42);
     $("rtitle").textContent = dmTitle(curRoom);
   } else if(groupOf(curRoom)){
     var g = groupOf(curRoom);
@@ -823,7 +860,8 @@ function openMore(ev){
   ];
   if(isDm() && dmOther(curRoom) != me) items.push(["👤 " + dmTitle(curRoom), titleClick]);
   if(groupOf(curRoom)) items.push(["ℹ️ " + L("ginfo"), openGroupInfo]);
-  items.push(["🃏 " + t("games"), function(){ act("join"); }]);
+  items.push(["🌐 " + L("trset"), function(){ spOpen(pgChatTr(curRoom)); }]);
+  items.push(["🎮 " + L("gamesh"), function(){ spOpen(pgGames); }]);
   popup(items, ev);
 }
 
@@ -872,6 +910,7 @@ function openRoom(room){
   MSGS = {}; OTHER_READ = 0; LASTID = 0; SENT_READ = 0; LASTDAY = ""; LIVE = false;
   typingName = ""; subBase = "";
   setPin(null);
+  trPrevHide();
   cancelReply();
   closeSearch();
   $("emo").style.display = "none";
@@ -918,7 +957,7 @@ function onmsg(e){
   if(m.type == "game") showGame(m);
   else if(m.type == "lobby") showLobby(m);
   else if(m.type == "err"){
-    if($("game").style.display == "block") $("gerr").textContent = srv(m.text);
+    if($("game").style.display == "block"){ $("gerr").textContent = srv(m.text); if($("gxerr")) $("gxerr").textContent = srv(m.text); }
     else addMsg({type: "system", text: m.text});
   }
   else if(m.type == "reads"){
@@ -985,7 +1024,7 @@ function note(text){
 }
 
 function flags(rec){
-  if(rec.fl) rec.fl.textContent = (rec.m.edited ? "✏️ " : "") + (rec.translated ? "🌐" : "");
+  if(rec.fl) rec.fl.textContent = (rec.m.edited ? "✏️ " : "") + (rec.trFail ? "⚠ " : "") + (rec.translated ? "🌐" : "");
 }
 
 function tickOne(rec){
@@ -1002,16 +1041,19 @@ function fillText(rec){
   var m = rec.m, tx = rec.tx;
   tx.textContent = m.text;
   tx.style.cursor = ""; tx.onclick = null;
-  rec.translated = false; rec.trText = null;
+  rec.translated = false; rec.trText = null; rec.trFail = false;
+  if(rec.fl){ rec.fl.style.cursor = ""; rec.fl.onclick = null; rec.fl.title = ""; }
   flags(rec);
-  if(rec.mine || !TR || m.text.length > 450) return;
+  var cfg = trCfg(curRoom);
+  if(rec.mine || m.text.length > 450 || !(cfg.on || rec.forceTr)) return;
   var cur = m.text;
   tx.style.opacity = ".55";
-  fetch("/translate?text=" + enc(cur) + "&to=" + LANG)
+  fetch("/translate?text=" + enc(cur) + "&to=" + cfg.to)
     .then(function(r){ return r.json(); })
     .then(function(d){
       tx.style.opacity = "";
       if(rec.m.text !== cur) return;
+      if(d.ok === false){ trFailed(rec); return; }
       if(d.text && d.text.trim().toLowerCase() != cur.trim().toLowerCase()){
         rec.trText = d.text; rec.translated = true;
         tx.textContent = d.text;
@@ -1024,7 +1066,15 @@ function fillText(rec){
         flags(rec);
         if(rec.stick) scrollDown();
       }
-    }).catch(function(){ tx.style.opacity = ""; });
+    }).catch(function(){ tx.style.opacity = ""; trFailed(rec); });
+}
+function trFailed(rec){
+  rec.trFail = true;
+  flags(rec);
+  if(rec.fl){
+    rec.fl.style.cursor = "pointer"; rec.fl.title = L("trfail");
+    rec.fl.onclick = function(ev){ ev.stopPropagation(); fillText(rec); };
+  }
 }
 
 function buildBody(rec){
@@ -1198,6 +1248,7 @@ function openMenu(rec, ev){
     });
   }
   if(!isMedia) item("📋 " + t("copy"), function(){ copyText(rec.m.text); });
+  if(!isMedia && !rec.mine && !rec.translated) item("🌐 " + L("trthis"), function(){ rec.forceTr = true; fillText(rec); });
   if(rec.mine && !isMedia) item("✏️ " + t("edit"), function(){ startEdit(rec); });
   if(rec.mine || isAdminHere()) item("🗑 " + t("del"), function(){ if(ws) ws.send(JSON.stringify({type: "del", id: rec.m.id})); });
   if(!rec.mine) item("🚩 " + t("report"), function(){ reportMsg(rec.m.id); });
@@ -1247,11 +1298,13 @@ function send(){
   if(replyTo) p.reply_to = replyTo.id;
   ws.send(JSON.stringify(p));
   i.value = "";
+  trPrevHide();
   cancelReply();
 }
 
 function onType(){
   updateMainBtn();
+  trPreview();
   var v = $("msg").value;
   if(ws && v && !editing && Date.now() - lastTypeSent > 2500){
     lastTypeSent = Date.now();
@@ -1511,9 +1564,12 @@ function showLobby(m){
   var p = $("lobby");
   if(m.gone){ p.style.display = "none"; return; }
   p.style.display = "block";
+  lastLobby = m;
+  var gi = GAMEINFO[m.game] || GAMEINFO.durak;
+  $("ltitle").textContent = gi.icon + " " + gi.title() + ": " + L("gplayers") + " (" + ((m.min || 2) == (m.max || 4) ? (m.max || 4) : (m.min || 2) + "-" + (m.max || 4)) + ")";
   $("lplayers").textContent =
     m.players.map(function(n){ return (n == m.host ? "👑 " : "") + n; }).join(", ") +
-    " (" + m.players.length + "/4)";
+    " (" + m.players.length + "/" + (m.max || 4) + ")";
   var inL = m.players.indexOf(me) >= 0;
   $("bjoin").style.display = inL ? "none" : "block";
   $("bleave").style.display = inL ? "block" : "none";
@@ -1534,6 +1590,10 @@ function showGame(g){
   if(g.gone){ lastGame = null; p.style.display = "none"; return; }
   lastGame = g;
   p.style.display = "block";
+  var kind = g.kind || "durak", dur = (kind == "durak");
+  ["gtop", "gtable", "gstatus", "gerr", "ghand", "gbtn"].forEach(function(id){ $(id).style.display = dur ? "" : "none"; });
+  $("gx").style.display = dur ? "none" : "block";
+  if(!dur){ (kind == "xo" ? renderXO : renderRPS)(g); return; }
   $("gerr").textContent = "";
   var parts = g.others.map(function(o){
     return (o.name == g.attacker ? "🗡" : "") + (o.name == g.defender ? "🛡" : "") +
@@ -1565,12 +1625,14 @@ function showGame(g){
   $("bdone").style.display = (active && g.defender != me) ? "block" : "none";
 }
 
-function act(action, card){
-  if(ws) ws.send(JSON.stringify({type: "game", action: action, card: card || null}));
+function act(action, card, game){
+  var p = {type: "game", action: action, card: (card === undefined ? null : card)};
+  if(game) p.game = game;
+  if(ws) ws.send(JSON.stringify(p));
 }
 
 /* ---------- settings (Telegram style) ---------- */
-var PDEF = {fs:16, rad:12, theme:0, wp:0, l3:0, enter:1, night:0, nPriv:1, nGroup:1, nSound:1, nVib:1, nPrev:1, nBrowser:0, nChat:1, badge:1, badgeMuted:0, dlPhoto:1, dlVideo:1};
+var PDEF = {fs:16, rad:12, theme:0, wp:0, l3:0, enter:1, night:0, nPriv:1, nGroup:1, nSound:1, nVib:1, nPrev:1, nBrowser:0, nChat:1, badge:1, badgeMuted:0, dlPhoto:1, dlVideo:1, trTo:"auto"};
 var PREF = {};
 (function(){
   var p = {};
@@ -1849,6 +1911,7 @@ function pgMain(box){
   rowEl(g, "💾", L("datas"), null, "", function(){ spPush(pgData); });
   rowEl(g, "📁", L("folders"), null, "", function(){ spPush(pgFolders); });
   rowEl(g, "💻", L("devices"), null, ME_PROF.sess_n ? String(ME_PROF.sess_n) : "", function(){ spPush(pgDevices); });
+  if(CHATS.ai) rowEl(g, "🤖", L("aifriend"), null, "", function(){ spPush(pgAI); });
   rowEl(g, "🌐", L("lang"), null, LANG.toUpperCase(), function(){
     spPush(choicePage(L("lang"), [["uz", "O'zbekcha"], ["ru", "Русский"], ["en", "English"]], LANG, function(v){ setLang(v); spBack(); }));
   });
@@ -1921,6 +1984,11 @@ function pgChat(box){
   var g = secEl(box, null);
   prefToggle(g, "⏎", L("entersend"), null, "enter");
   toggleRow(g, "🌐", L("autotr"), L("autotrsub"), function(){ return TR; }, function(){ toggleTr(); });
+  rowEl(g, null, L("trto"), null, PREF.trTo == "auto" ? L("trauto") : langName(PREF.trTo), function(){
+    spPush(choicePage(L("trto"), [["auto", L("trauto")], ["uz", "O'zbekcha"], ["ru", "Русский"], ["en", "English"]], PREF.trTo, function(v){
+      PREF.trTo = v; savePrefs(); spBack();
+    }));
+  });
 }
 
 function pgPrivacy(box){
@@ -2498,6 +2566,221 @@ function tryJoin(){
     if(d && d.room) loadChats(function(){ openRoom(d.room); });
     else toast(L("invbad"));
   }).catch(function(){});
+}
+
+/* ---------- Tarjimon: har bir chat uchun ---------- */
+Object.assign(S, {
+  trset:["Tarjima sozlamalari","Настройки перевода","Translation settings"],
+  trin:["Kelgan xabarlar","Входящие сообщения","Incoming messages"],
+  trauto:["Umumiy sozlama","Общая настройка","Default"], on:["Yoqilgan","Включён","On"], off:["O'chirilgan","Выключен","Off"],
+  trlang:["Tarjima tili (o'qish uchun)","Язык перевода (для чтения)","Translate to (for reading)"],
+  trout:["Yozayotganda tarjimani ko'rsatish","Показывать перевод при наборе","Preview translation while typing"],
+  trnote:["Yozayotganda tarjima pastda chiqadi. Ustiga bossangiz, matn tarjimaga almashadi va uni yuborishingiz mumkin.","Во время набора перевод появляется внизу. Нажмите на него, чтобы заменить текст переводом и отправить.","While typing, the translation appears below. Tap it to replace your text and send it."],
+  trfail:["Tarjima ishlamadi. Bossangiz qayta uriniladi.","Перевод не сработал. Нажмите, чтобы повторить.","Translation failed. Tap to retry."],
+  trthis:["Tarjima qilish","Перевести","Translate"], trto:["Tarjima tili","Язык перевода","Translate to"],
+  trstatus:["Tarjimonlar holati","Состояние переводчиков","Translator status"],
+  engok:["ishlayapti","работает","working"], engwait:["to'xtatilgan, kuting: ","приостановлен, ждать: ","paused, wait: "]
+});
+function langName(v){ return v == "uz" ? "O'zbekcha" : v == "ru" ? "Русский" : v == "en" ? "English" : ""; }
+var TRC = {};
+try{ TRC = JSON.parse(localStorage.getItem("trchat") || "{}") || {}; }catch(e){ TRC = {}; }
+function trCfg(room){
+  var c = (room && TRC[room]) || {};
+  return {
+    on: c.on === 1 ? true : c.on === 0 ? false : !!TR,
+    to: c.to || (PREF.trTo && PREF.trTo != "auto" ? PREF.trTo : LANG),
+    out: c.out || ""
+  };
+}
+function setTrCfg(room, key, val){
+  var c = TRC[room] || (TRC[room] = {});
+  if(val === "" || val == null) delete c[key]; else c[key] = val;
+  if(!Object.keys(c).length) delete TRC[room];
+  localStorage.setItem("trchat", JSON.stringify(TRC));
+  if(room == curRoom){
+    Object.keys(MSGS).forEach(function(k){ var r = MSGS[k]; if(r.tx && !r.m.deleted) fillText(r); });
+    trPreview();
+  }
+}
+function pgChatTr(room){
+  return function(box){
+    spTitle(L("trset"));
+    var c = TRC[room] || {};
+    var a = secEl(box, L("trin"));
+    var cur = c.on === 1 ? 1 : c.on === 0 ? 0 : -1;
+    [[-1, L("trauto") + " (" + (TR ? L("on") : L("off")) + ")"], [1, L("on")], [0, L("off")]].forEach(function(o){
+      rowEl(a, null, o[1], null, cur == o[0] ? "✓" : "", function(){ setTrCfg(room, "on", o[0] == -1 ? null : o[0]); spRender(); });
+    });
+    var b = secEl(box, L("trlang"));
+    [["", L("trauto") + " (" + langName(PREF.trTo == "auto" ? LANG : PREF.trTo) + ")"], ["uz", "O'zbekcha"], ["ru", "Русский"], ["en", "English"]].forEach(function(o){
+      rowEl(b, null, o[1], null, (c.to || "") == o[0] ? "✓" : "", function(){ setTrCfg(room, "to", o[0]); spRender(); });
+    });
+    var d = secEl(box, L("trout"));
+    [["", L("off")], ["uz", "O'zbekcha"], ["ru", "Русский"], ["en", "English"]].forEach(function(o){
+      rowEl(d, null, o[1], null, (c.out || "") == o[0] ? "✓" : "", function(){ setTrCfg(room, "out", o[0]); spRender(); });
+    });
+    noteEl(box, L("trnote"));
+    var my = SPREV;
+    var st = secEl(box, L("trstatus"));
+    fetch("/translate/status").then(function(r){ return r.json(); }).then(function(l){
+      if(my !== SPREV || !Array.isArray(l)) return;
+      l.forEach(function(e){
+        rowEl(st, e.ok ? "🟢" : "🟠", e.name, e.ok ? L("engok") : L("engwait") + e.wait + " s", "", null);
+      });
+    }).catch(function(){});
+  };
+}
+
+/* yozayotganda tarjimani oldindan ko'rish */
+var trPT = null, trLast = "";
+function trPrevHide(){
+  clearTimeout(trPT);
+  var el = $("trprev");
+  if(el) el.style.display = "none";
+  trLast = "";
+}
+function trPreview(){
+  clearTimeout(trPT);
+  var cfg = curRoom ? trCfg(curRoom) : null;
+  var v = $("msg").value.trim();
+  if(!cfg || !cfg.out || v.length < 2 || v.length > 450 || editing){ trPrevHide(); return; }
+  trPT = setTimeout(function(){
+    fetch("/translate?text=" + enc(v) + "&to=" + cfg.out).then(function(r){ return r.json(); }).then(function(d){
+      if($("msg").value.trim() !== v) return;
+      var tt = $("trtxt");
+      if(d.ok === false){
+        trLast = ""; tt.textContent = "⚠ " + L("trfail"); tt.onclick = trPreview;
+        $("trprev").style.display = "flex";
+      } else if(d.text && d.text.trim().toLowerCase() != v.toLowerCase()){
+        trLast = d.text; tt.textContent = "🌐 " + d.text;
+        tt.onclick = function(){
+          $("msg").value = trLast; updateMainBtn(); trPrevHide(); $("msg").focus();
+        };
+        $("trprev").style.display = "flex";
+      } else trPrevHide();
+    }).catch(function(){ trPrevHide(); });
+  }, 600);
+}
+
+/* ---------- AI do'st ---------- */
+var AI_USER = "ai_dost";
+Object.assign(S, {
+  aifriend:["AI do'st","AI-друг","AI friend"], aiprov:["AI xizmatlari","AI-сервисы","AI services"],
+  ainokey:["kalit yo'q","ключ не указан","no key"], aiready:["tayyor","готов","ready"],
+  aitest:["Sinab ko'rish","Проверить","Test"], aiopen:["AI do'st bilan suhbat","Чат с AI-другом","Chat with AI friend"],
+  aitesting:["Tekshirilmoqda...","Проверяем...","Testing..."],
+  ainote:["Kalitlarni serverdagi ai_keys.json fayliga yozing (namuna: ai_keys.example.json). Bu chatdagi xabarlar AI xizmatiga yuboriladi.","Впишите ключи в файл ai_keys.json на сервере (образец: ai_keys.example.json). Сообщения в этом чате отправляются AI-сервису.","Put the keys into ai_keys.json on the server (see ai_keys.example.json). Messages in this chat are sent to the AI service."]
+});
+function pgAI(box){
+  spTitle(L("aifriend"));
+  var my = SPREV;
+  var a = secEl(box, L("aiprov"));
+  fetch("/ai/status?token=" + enc(tok)).then(function(r){ return r.json(); }).then(function(l){
+    if(my !== SPREV || !Array.isArray(l)) return;
+    l.forEach(function(p){
+      var sub = !p.configured ? L("ainokey") : (p.err ? p.err : (p.ok ? "✓ " + fmtSeen(p.ok) : L("aiready")));
+      rowEl(a, !p.configured ? "⚪" : (p.err ? "🟠" : "🟢"), p.name, sub, "", null);
+    });
+  }).catch(function(){});
+  var b = secEl(box, null);
+  var out = mk("div", "sn", "");
+  rowEl(b, "🧪", L("aitest"), null, "", function(){
+    out.textContent = L("aitesting");
+    post("/ai/test", {}).then(function(d){
+      out.textContent = d.ok ? "✅ " + d.provider + ": " + d.text : "❌ " + (d.error || "");
+      spRender();
+      // natija sahifa yangilanganda yo'qolmasligi uchun qayta ko'rsatamiz
+      setTimeout(function(){ var o = document.querySelector("#spc .sn.aiout"); if(o) o.textContent = out.textContent; }, 0);
+    }).catch(function(){ out.textContent = "❌"; });
+  });
+  rowEl(b, "💬", L("aiopen"), null, "", function(){ spClose(); openRoom(dmRoom(AI_USER)); });
+  out.className = "sn aiout";
+  box.appendChild(out);
+  noteEl(box, L("ainote"));
+}
+
+/* ---------- O'yinlar bo'limi ---------- */
+Object.assign(S, {
+  gamesh:["O'yinlar","Игры","Games"], gplayers:["o'yinchilar","игроки","players"],
+  yourturn:["Sizning navbatingiz","Ваш ход","Your turn"], turnof:["navbati","ходит","'s turn"],
+  waitopp:["Raqib tanlashini kutyapsiz...","Ждём выбор соперника...","Waiting for the opponent..."],
+  pickone:["Tanlang","Выбирайте","Pick one"], rematch:["Qayta o'ynash","Сыграть ещё","Play again"],
+  gdraw:["Durang","Ничья","Draw"], round:["Raund","Раунд","Round"], toreach:["gacha","до","to"],
+  rpsname:["Tosh-qaychi-qog'oz","Камень-ножницы-бумага","Rock-paper-scissors"],
+  gdurak:["Klassik karta o'yini, 2–4 kishi","Классическая карточная игра, 2–4 игрока","Classic card game, 2–4 players"],
+  gxo:["Ikki kishilik, 3×3 katak","Для двоих, поле 3×3","Two players, 3×3 grid"],
+  grps:["Ikki kishilik, 2 raund yutgan g'olib","Для двоих, побеждает выигравший 2 раунда","Two players, first to win 2 rounds"],
+  gstart:["Chatda o'yinchilar yig'iladi","В чате соберутся игроки","Players will gather in the chat"]
+});
+var lastLobby = null;
+var GAMEINFO = {
+  durak: {icon: "🃏", title: function(){ return "Durak"; }, desc: "gdurak"},
+  xo: {icon: "⭕", title: function(){ return "XO"; }, desc: "gxo"},
+  rps: {icon: "✊", title: function(){ return L("rpsname"); }, desc: "grps"}
+};
+function pgGames(box){
+  spTitle(L("gamesh"));
+  var sc = secEl(box, null);
+  ["durak", "xo", "rps"].forEach(function(k){
+    var gi = GAMEINFO[k];
+    rowEl(sc, gi.icon, gi.title(), L(gi.desc), "", function(){ spClose(); act("join", null, k); });
+  });
+  noteEl(box, L("gstart"));
+}
+function renderXO(g){
+  var box = $("gx"); box.innerHTML = "";
+  var mine = g.players.indexOf(me) >= 0;
+  var head = mk("div", "gxh", "❌ " + g.players[0] + "   vs   ⭕ " + g.players[1]);
+  box.appendChild(head);
+  var turnMe = (g.turn == me);
+  var st = g.over ? srv(g.msg) : (turnMe ? L("yourturn") : g.turn + " " + L("turnof"));
+  box.appendChild(mk("div", "gxs", st));
+  var grid = mk("div", "xo");
+  for(var i = 0; i < 9; i++){
+    (function(i){
+      var v = g.board[i];
+      var b = mk("button", (g.line && g.line.indexOf(i) >= 0) ? "win" : "", v == "X" ? "❌" : v == "O" ? "⭕" : "");
+      b.onclick = function(){ if(!g.over && turnMe && !v && mine) act("move", i); };
+      grid.appendChild(b);
+    })(i);
+  }
+  box.appendChild(grid);
+  box.appendChild(mk("div", null, "")).id = "gxerr";
+  if(g.over && mine){
+    var rb = mk("button", null, L("rematch"));
+    rb.onclick = function(){ act("join", null, "xo"); };
+    box.appendChild(rb);
+  }
+}
+var RPSI = {rock: "✊", paper: "✋", scissors: "✌️"};
+function renderRPS(g){
+  var box = $("gx"); box.innerHTML = "";
+  var a = g.players[0], b = g.players[1];
+  var mineP = g.players.indexOf(me) >= 0;
+  box.appendChild(mk("div", "gxh", L("round") + " " + g.round + "  ·  " + a + " " + g.score[a] + " : " + g.score[b] + " " + b + "  (" + L("toreach") + " " + g.target + ")"));
+  if(g.last){
+    var lc = g.last.choices;
+    var res = g.last.winner ? g.last.winner + " ✓" : L("gdraw");
+    box.appendChild(mk("div", "gxh", a + " " + RPSI[lc[a]] + "  vs  " + RPSI[lc[b]] + " " + b + "  →  " + res));
+  }
+  if(g.over){
+    box.appendChild(mk("div", "gxs", srv(g.msg)));
+  } else {
+    box.appendChild(mk("div", "gxs", g.mine ? L("waitopp") : L("pickone")));
+    var row = mk("div", "rpsb");
+    ["rock", "paper", "scissors"].forEach(function(k){
+      var bt = mk("button", g.mine == k ? "sel" : "", RPSI[k]);
+      bt.onclick = function(){ if(!g.mine && mineP) act("pick", k); };
+      row.appendChild(bt);
+    });
+    box.appendChild(row);
+  }
+  box.appendChild(mk("div", null, "")).id = "gxerr";
+  if(g.over && mineP){
+    var rb = mk("button", null, L("rematch"));
+    rb.onclick = function(){ act("join", null, "rps"); };
+    box.appendChild(rb);
+  }
 }
 
 /* ---------- translation toggle ---------- */

@@ -28,6 +28,7 @@ _add_column("users", "last_seen", "INTEGER DEFAULT 0")
 _add_column("users", "hide_seen", "INTEGER DEFAULT 0")
 _add_column("users", "hide_photo", "INTEGER DEFAULT 0")
 _add_column("users", "hide_bio", "INTEGER DEFAULT 0")
+_add_column("users", "bot", "INTEGER DEFAULT 0")
 _add_column("users", "msg_priv", "INTEGER DEFAULT 0")
 _add_column("users", "sess_ttl", "INTEGER DEFAULT 6")
 _add_column("users", "color", "TEXT")
@@ -128,13 +129,13 @@ def prior_chat(room, name):
 
 def get_profile(name):
     row = conn.execute(
-        "SELECT avatar, bio, display, last_seen, hide_seen, hide_photo, hide_bio, msg_priv, sess_ttl, color "
+        "SELECT avatar, bio, display, last_seen, hide_seen, hide_photo, hide_bio, msg_priv, sess_ttl, color, bot "
         "FROM users WHERE name=?", (name,)).fetchone()
     if not row:
         return None
     return {"name": name, "avatar": row[0], "bio": row[1], "display": row[2] or name,
             "last_seen": row[3] or 0, "hide_seen": row[4] or 0, "hide_photo": row[5] or 0,
-            "hide_bio": row[6] or 0, "msg_priv": row[7] or 0, "sess_ttl": row[8] or 6, "color": row[9] or ""}
+            "hide_bio": row[6] or 0, "msg_priv": row[7] or 0, "sess_ttl": row[8] or 6, "color": row[9] or "", "bot": row[10] or 0}
 
 
 def display_of(name):
@@ -470,3 +471,33 @@ def room_last(room):
         return None
     return {"name": r[0], "display": display_of(r[0]), "text": "" if r[3] else (r[1] or "")[:100],
             "time": r[2] or 0, "deleted": r[3] or 0}
+
+
+# ---------- AI do'st (bot) ----------
+
+BOT_NAME = "ai_dost"
+
+
+def dm_room(a, b):
+    return "dm:" + "|".join(sorted([a, b]))
+
+
+def recent_texts(room, n=14):
+    rows = conn.execute(
+        "SELECT name, text FROM messages WHERE room=? AND deleted=0 ORDER BY id DESC LIMIT ?", (room, n)).fetchall()
+    return list(reversed(rows))
+
+
+def ensure_bot():
+    """AI do'st uchun maxsus foydalanuvchi. Unga parol bilan kirib bo'lmaydi."""
+    bio = "Men AI do'stingizman. Savol bering, gaplashamiz. Xabarlaringiz AI xizmatiga yuboriladi."
+    r = conn.execute("SELECT bot FROM users WHERE name=?", (BOT_NAME,)).fetchone()
+    if r is None:
+        conn.execute("INSERT INTO users (name, salt, hash, avatar, bio, display, bot) VALUES (?, 'x', '!', ?, ?, ?, 1)",
+                     (BOT_NAME, "🤖", bio, "AI do'st"))
+    elif r[0]:
+        conn.execute("UPDATE users SET avatar=?, bio=?, display=? WHERE name=?", ("🤖", bio, "AI do'st", BOT_NAME))
+    conn.commit()
+
+
+ensure_bot()
